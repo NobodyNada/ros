@@ -1,0 +1,9 @@
+[build]
+target = "i686-none.json"
+rustflags = ["-Clink-args=-Tros.ld"]
+
+[unstable]
+build-std = ["core"]
+
+[target.i686-none]
+runner = "./qemu.sh"
