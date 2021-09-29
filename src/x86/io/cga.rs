@@ -4,7 +4,7 @@ use core::fmt::Write;
 
 use crate::util::Global;
 
-use super::Io;
+use super::{Io, Output};
 use modular_bitfield::prelude::*;
 
 pub const CGA_WIDTH: usize = 80;
@@ -16,7 +16,7 @@ pub const CGA_MEM_BASE: u32 = 0xB8000;
 /// A simple CGA driver for displaying a console.
 pub struct Cga {
     buf: &'static mut [Char],
-    reg_index: Io<u8, { CGA_REG_BASE }, 0>,
+    reg_index: Output<u8, { CGA_REG_BASE }, 0>,
     reg_data: Io<u8, { CGA_REG_BASE }, 1>,
     cursor_x: usize,
     cursor_y: usize,
@@ -28,7 +28,7 @@ impl Cga {
     pub unsafe fn new() -> Self {
         let mut cga = Cga {
             buf: core::slice::from_raw_parts_mut(CGA_MEM_BASE as *mut _, CGA_WIDTH * CGA_HEIGHT),
-            reg_index: Io::new(),
+            reg_index: Output::new(),
             reg_data: Io::new(),
             cursor_x: 0,
             cursor_y: 0,
@@ -69,6 +69,16 @@ impl Cga {
                 .copy_within((1 * CGA_WIDTH)..(CGA_HEIGHT * CGA_WIDTH), 0);
             self.buf[((CGA_HEIGHT - 1) * CGA_WIDTH)..].fill(Char::default());
         }
+
+        // Move the cursor on the screen
+        let cursor = Self::idx(self.cursor_x, self.cursor_y) as u16;
+
+        unsafe {
+            self.reg_index.write(CgaReg::CursorPosHigh as u8);
+            self.reg_data.write((cursor >> 8) as u8);
+            self.reg_index.write(CgaReg::CursorPosLow as u8);
+            self.reg_data.write(cursor as u8);
+        }
     }
 
     pub fn write_byte(&mut self, c: u8) {
@@ -101,11 +111,19 @@ impl Write for Cga {
 
 #[bitfield]
 #[repr(u16)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct Char {
     pub c: u8,
     pub fg_color: Color,
     pub bg_color: Color,
+}
+impl Default for Char {
+    fn default() -> Char {
+        Char::new()
+            .with_c(b' ')
+            .with_fg_color(Color::LightGray)
+            .with_bg_color(Color::Black)
+    }
 }
 
 #[derive(BitfieldSpecifier)]
@@ -127,4 +145,10 @@ pub enum Color {
     LightMagenta,
     Yellow,
     White,
+}
+
+#[derive(Clone, Copy)]
+enum CgaReg {
+    CursorPosHigh = 0xe,
+    CursorPosLow = 0xf,
 }
