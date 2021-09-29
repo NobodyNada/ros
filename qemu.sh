@@ -42,7 +42,9 @@ options+=(-drive "format=raw,media=disk,index=0,file=$image" -serial stdio)
 if [ $debug -eq 1 ]; then
     let port=$RANDOM+1024
     options+=(-S -gdb tcp::$port)
-    if exists lldb; then
+    if exists rust-lldb; then
+        debugger=(rust-lldb $file -o "gdb-remote $port")
+    elif exists lldb; then
         debugger=(lldb $file -o "gdb-remote $port")
     elif exists gdb; then
         debugger=(gdb $file -ex "target remote localhost:$port")

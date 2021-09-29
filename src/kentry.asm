@@ -50,7 +50,8 @@ bss:
     mov ebp, 0
 
     // and we're ready to run Rust!
-    jmp _main
+    call _main  // (should never return, but we want to 'call' it anyway for the sake of stack unwinding)
+    jmp _halt
 
 // Allocate some space for the kernel stack within the bss segment.
 .section .bss.kernel_stack, "w"

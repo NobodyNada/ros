@@ -1,6 +1,6 @@
 [build]
 target = "i686-none.json"
-rustflags = ["-Clink-args=-Tros.ld"]
+rustflags = ["-Clink-args=-Tros.ld", "-Cforce-frame-pointers", "-Zsymbol-mangling-version=v0"]
 
 [unstable]
 build-std = ["core"]

@@ -9,34 +9,63 @@
 //   Some compile-time-constant computation features
 //     (used for e.g. generating pagetables and I/O port definitions at compile time)
 #![feature(const_generics_defaults, const_fn_trait_bound, const_fn_fn_ptr_basics)]
+#![feature(panic_info_message)]
+
+use core::fmt::Write;
+use x86::io::{cga, serial};
 
 // Include assembly modules
 global_asm!(include_str!("boot.asm"));
 global_asm!(include_str!("kentry.asm"));
 
 // Include Rust modules
+pub mod debug;
 pub mod util;
 pub mod x86;
 
 /// Loops forever.
 #[allow(clippy::empty_loop)]
-pub fn halt() -> ! {
+#[no_mangle]
+pub extern "C" fn halt() -> ! {
+    x86::cli();
     loop {}
 }
 
 #[panic_handler]
-fn panic(_panic: &core::panic::PanicInfo<'_>) -> ! {
+unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     // Called if our code `panic!`'s -- for instance, if an assertion or bounds-check fails.
-    // Eventually, we can add debugging features such as error messages & backtraces,
-    halt() // but for now we'll just halt.
+    x86::cli();
+
+    // Forcibly reset the serial port (even if someone else was using it)
+    let mut serial = serial::Serial::<{ serial::COM1_BASE }>::new();
+
+    let mut write_panic_message = |fmt: core::fmt::Arguments<'_>| {
+        let _ = serial.write_fmt(fmt);
+        // Also write to CGA, but ignore conflicts
+        if let Some(mut cga) = cga::CGA.take() {
+            let _ = cga.write_fmt(fmt);
+        }
+    };
+    write_panic_message(format_args!("\n\npanic: "));
+
+    if let Some(message) = info.message() {
+        write_panic_message(format_args!("{}\n", *message));
+    } else if let Some(message) = info.payload().downcast_ref::<&str>() {
+        write_panic_message(format_args!("{}\n", message));
+    } else {
+        write_panic_message(format_args!("<unknown reason>\n"));
+    }
+
+    write_panic_message(format_args!("Stack trace:"));
+    debug::backtrace(|frame| write_panic_message(format_args!(" {:#08x}", frame)));
+    write_panic_message(format_args!("\n"));
+
+    halt()
 }
 
 /// Rust entrypoint (called by kentry.asm).
 #[no_mangle]
 pub extern "C" fn main() -> ! {
-    x86::io::serial::COM1
-        .take()
-        .unwrap()
-        .write_str("Hello, world!\n");
-    halt()
+    kprintln!("Hello, world!");
+    panic!("test");
 }

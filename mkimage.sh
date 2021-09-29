@@ -44,6 +44,6 @@ if [ -z "$infile" ]; then
     fi
 fi
 [ ! -z "$outfile" ] || outfile="$infile.img"
-objcopy -j .boot -j .kernel -O binary "$infile" "$outfile"
+objcopy -j .boot -j .kernel -j .symtab -j .strtab -O binary "$infile" "$outfile"
 
 echo "Image written to $outfile" >&2
