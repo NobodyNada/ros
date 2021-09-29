@@ -1,5 +1,7 @@
 #![allow(clippy::identity_op)]
 
+use core::fmt::Write;
+
 use super::{Input, Io, IoRwConvertible, Output};
 use crate::util::Global;
 use modular_bitfield::prelude::*;
@@ -10,7 +12,10 @@ pub struct Serial<const BASE: u16> {
 }
 
 /// The default serial port.
-pub static COM1: Global<Serial<0x3F8>> = Global::lazy(|| unsafe { Serial::new() });
+pub static COM1: Global<Serial<COM1_BASE>> = Global::lazy(|| unsafe { Serial::new() });
+
+/// The I/O device base address for the default serial port.
+pub const COM1_BASE: u16 = 0x3F8;
 
 impl<const BASE: u16> Serial<BASE> {
     /// Instantiates and initializes a serial port.
@@ -19,7 +24,7 @@ impl<const BASE: u16> Serial<BASE> {
     ///
     /// It is the caller's responsibility to avoid I/O space conflicts (such as two serial drivers
     /// sharing the same port).
-    unsafe fn new() -> Self {
+    pub unsafe fn new() -> Self {
         let mut serial = Self {
             io: SerialIo::default(),
         };
@@ -63,11 +68,6 @@ impl<const BASE: u16> Serial<BASE> {
         }
     }
 
-    /// Outputs a string over the serial port. Blocks if the transmit FIFO is full.
-    pub fn write_str(&mut self, s: &str) {
-        self.write_bytes(s.as_bytes());
-    }
-
     /// Sets the baud rate divisor.
     ///
     /// A divisor of 1 corresponds to a baud rate of 115,200 bits per second.
@@ -93,6 +93,15 @@ impl<const BASE: u16> Serial<BASE> {
             self.set_divisor_latch(false);
             result
         }
+    }
+}
+
+impl<const BASE: u16> Write for Serial<BASE> {
+    /// Outputs a string over the serial port. Blocks if the transmit FIFO is full.
+    /// Always succeeds.
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.write_bytes(s.as_bytes());
+        Ok(())
     }
 }
 

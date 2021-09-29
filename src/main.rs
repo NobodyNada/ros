@@ -15,9 +15,8 @@ global_asm!(include_str!("boot.asm"));
 global_asm!(include_str!("kentry.asm"));
 
 // Include Rust modules
-pub mod io;
-pub mod mmu;
 pub mod util;
+pub mod x86;
 
 /// Loops forever.
 #[allow(clippy::empty_loop)]
@@ -35,7 +34,7 @@ fn panic(_panic: &core::panic::PanicInfo<'_>) -> ! {
 /// Rust entrypoint (called by kentry.asm).
 #[no_mangle]
 pub extern "C" fn main() -> ! {
-    io::serial::COM1
+    x86::io::serial::COM1
         .take()
         .unwrap()
         .write_str("Hello, world!\n");
