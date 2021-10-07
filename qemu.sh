@@ -16,11 +16,15 @@ function exists() {
 declare -a options
 file=
 debug=0
+nox=0
 
 while [ ! -z "$1" ]; do
     case "$1" in
         --debug|-d)
             debug=1
+            ;;
+        --nox|-n)
+            nox=1
             ;;
         --qemu|-q)
             shift
@@ -37,7 +41,10 @@ done
 image="$file.img"
 ./mkimage.sh -i "$file" "$image"
 
-options+=(-drive "format=raw,media=disk,index=0,file=$image" -serial stdio)
+options+=(-drive "format=raw,media=disk,index=0,file=$image" -serial mon:stdio -L "$(dirname "$script")/qemu_roms")
+if [ $nox -eq 1 ]; then
+    options+=(-nographic)
+fi
 
 if [ $debug -eq 1 ]; then
     let port=$RANDOM+1024
