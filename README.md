@@ -8,4 +8,10 @@ ros requires a Rust nightly toolchain with the `rust-src` component installed. I
 
 ## Building
 
-`cargo build` will compile and link all source files, but it will not automatically generate a binary image. Use the provided `mkimage.sh` script to build the kernel and generate a bootable image file. Or just use `cargo run`, which will automatically generate a binary image and boot it within `qemu`.
+`cargo build` will compile and link all source files, but it will not automatically generate a binary image. Use the provided `mkimage.sh` script to build the kernel and generate a bootable image file. Or just use `cargo run`, which will automatically generate a binary image and boot it within `qemu`. `cargo run` also supports some options:
+
+    cargo run --release         # build with optimizations, reduces binary size by ~10x
+    cargo run -- -d             # launch in a debugger
+    cargo run -- -n             # launch without a GUI
+    cargo run --release -- -n   # recommended for running on os2 servers
+    cargo run -dn               # recommended for debugging on os2 servers
