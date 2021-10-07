@@ -1,16 +1,12 @@
+pub mod interrupt;
 pub mod io;
 pub mod mmu;
 
-/// Disables interrupts.
-pub fn cli() {
+/// Returns the current code segment.
+pub fn cs() -> u16 {
     unsafe {
-        asm!("cli");
-    }
-}
-
-/// Enables interrupts.
-pub fn sei() {
-    unsafe {
-        asm!("sei");
+        let result: u16;
+        asm!("mov {:x}, cs", out(reg) result, options(nomem, nostack));
+        result
     }
 }

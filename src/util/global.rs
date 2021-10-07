@@ -71,10 +71,28 @@ impl<T> Global<T> {
             None
         }
     }
+
+    /// Makes a reference to the resource permanent. Future
+    /// calls to `take` will always deny access.
+    pub fn leak<'a>(guard: GlobalGuard<'a, T>) -> &'a mut T {
+        let result = unsafe { (*guard.0.resource.get()).get_mut() };
+        core::mem::forget(guard);
+        result
+    }
+
+    /// Acquires a permanent reference to the resource.
+    pub fn take_and_leak(&self) -> Option<&mut T> {
+        self.take().map(|guard| Self::leak(guard))
+    }
 }
 impl<T: Default> Default for Global<T> {
     fn default() -> Self {
         Self::new(T::default())
+    }
+}
+impl<T: Default> Global<T> {
+    pub const fn lazy_default() -> Self {
+        Self::lazy(|| T::default())
     }
 }
 unsafe impl<T> Sync for Global<T> {}

@@ -6,10 +6,13 @@
 // Enable unstable (nightly-only) features that we need:
 //   Inline assembly
 #![feature(asm, global_asm)]
+//   Compiler support for x86 interrupt calling conventions
+#![feature(abi_x86_interrupt)]
+//   PanicInfo::message() function
+#![feature(panic_info_message)]
 //   Some compile-time-constant computation features
 //     (used for e.g. generating pagetables and I/O port definitions at compile time)
 #![feature(const_generics_defaults, const_fn_trait_bound, const_fn_fn_ptr_basics)]
-#![feature(panic_info_message)]
 
 use core::fmt::Write;
 use x86::io::{cga, serial};
@@ -27,14 +30,14 @@ pub mod x86;
 #[allow(clippy::empty_loop)]
 #[no_mangle]
 pub extern "C" fn halt() -> ! {
-    x86::cli();
+    x86::interrupt::cli();
     loop {}
 }
 
 #[panic_handler]
 unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     // Called if our code `panic!`'s -- for instance, if an assertion or bounds-check fails.
-    x86::cli();
+    x86::interrupt::cli();
 
     // Forcibly reset the serial port (even if someone else was using it)
     let mut serial = serial::Serial::<{ serial::COM1_BASE }>::new();
@@ -67,5 +70,13 @@ unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
 #[no_mangle]
 pub extern "C" fn main() -> ! {
     kprintln!("Hello, world!");
+
+    let idt = x86::interrupt::IDT.take_and_leak().unwrap();
+    idt.lidt();
+
+    unsafe {
+        *(0xeeeeeeee as *mut u32) = 0x12345678;
+    }
+
     panic!("test");
 }
