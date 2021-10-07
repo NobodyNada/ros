@@ -19,4 +19,6 @@ SECTIONS {
         *(.bss .bss.*)
         BSS_END = .;
     }
+
+    /DISCARD/ : { *(.eh_*) }
 }
