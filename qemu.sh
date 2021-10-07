@@ -5,8 +5,9 @@ script="$0"
 function usage() {
     echo "Usage: $script [options] executable" >&2
     echo "Options:" >&2
-    echo "    --debug, -d: launch a debugger" >&2
-    echo "    --qemu, -q: pass an option through to qemu"
+    echo "    -d: launch a debugger" >&2
+    echo "    -n: disable graphical output" >&2
+    echo "    -q: pass an option through to qemu" >&2
     exit 1
 }
 function exists() {
@@ -19,23 +20,25 @@ debug=0
 nox=0
 
 while [ ! -z "$1" ]; do
-    case "$1" in
-        --debug|-d)
-            debug=1
-            ;;
-        --nox|-n)
-            nox=1
-            ;;
-        --qemu|-q)
-            shift
-            options+=("$1")
-            ;;
-        *)
-            [ -z "$file" ] && file=$1 || usage
-            ;;
-    esac
-    shift
+    while getopts "dnq:" o; do
+        case "$o" in
+            d)
+                debug=1
+                ;;
+            n)
+                nox=1
+                ;;
+            q)
+                shift
+                options+=("$OPTARG")
+                ;;
+        esac
+    done
+    shift $((OPTIND-1))
+    [ -z "$1" ] || { [ -z "$file" ] && file=$1; } || usage
+    OPTIND=2
 done
+
 [ -z "$file" ] && usage
 
 image="$file.img"
