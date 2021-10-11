@@ -14,4 +14,4 @@ ros requires a Rust nightly toolchain with the `rust-src` component installed. I
     cargo run -- -d             # launch in a debugger
     cargo run -- -n             # launch without a GUI
     cargo run --release -- -n   # recommended for running on os2 servers
-    cargo run -dn               # recommended for debugging on os2 servers
+    cargo run -- -dn            # recommended for debugging on os2 servers
