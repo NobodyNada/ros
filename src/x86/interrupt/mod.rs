@@ -62,6 +62,7 @@ impl InterruptGate {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe trait InterruptHandler {
     fn to_offset(&self) -> u32;
 }
