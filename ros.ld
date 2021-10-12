@@ -22,10 +22,12 @@ SECTIONS {
     }
 
     .bss : {
-        BSS_START = .;
+        KERNEL_BSS_START = .;
         *(.bss .bss.*)
-        BSS_END = .;
+        KERNEL_BSS_END = .;
     }
+
+    _PHYSALLOC_START = . - KERNEL_RELOC_BASE;
 
     /DISCARD/ : { *(.eh_*) }
 }

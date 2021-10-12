@@ -23,6 +23,7 @@ global_asm!(include_str!("kentry.asm"));
 
 // Include Rust modules
 pub mod debug;
+pub mod prelude;
 pub mod util;
 pub mod x86;
 
@@ -73,6 +74,10 @@ pub extern "C" fn main() -> ! {
 
     let idt = x86::interrupt::IDT.take_and_leak().unwrap();
     idt.lidt();
+
+    while let Some(addr) = x86::mmu::palloc::palloc() {
+        kprint!("{:#08x?}\t", addr);
+    }
 
     unsafe {
         *(0xeeeeeeee as *mut u32) = 0x12345678;
