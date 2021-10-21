@@ -6,15 +6,21 @@ pub fn palloc() -> Option<usize> {
     ALLOCATOR.take().unwrap().alloc()
 }
 
+/// Allocates and zero-fills a page of physical memory, and returns its address.
+pub fn palloc_zeroed() -> Option<usize> {
+    ALLOCATOR.take().unwrap().alloc_zeroed()
+}
+
 pub struct PhysAllocator {
     bump_allocator: BumpAllocator,
+    max_allocated: usize,
 }
-static ALLOCATOR: Global<PhysAllocator> = Global::lazy(|| unsafe { PhysAllocator::new() });
+pub static ALLOCATOR: Global<PhysAllocator> = Global::lazy(|| unsafe { PhysAllocator::new() });
 
 extern "C" {
     /// The memory map obtained from the BIOS in boot.asm.
     /// NOTE: This is a physical address, not a virtual address!
-    static mut PHYS_MEMORY_MAP: [MemoryRegion; 0];
+    static mut BIOS_MEMORY_MAP: [MemoryRegion; 0];
 
     static mut PHYSALLOC_START: u8;
 }
@@ -55,14 +61,34 @@ impl MemoryRegion {
 
 impl PhysAllocator {
     unsafe fn new() -> Self {
+        let start = core::ptr::addr_of_mut!(PHYSALLOC_START) as usize;
         PhysAllocator {
-            bump_allocator: BumpAllocator::new(),
+            bump_allocator: BumpAllocator::new(start),
+            max_allocated: mmu::page_align_down(start - 1),
         }
     }
 
     /// Allocates a page of physical memory, and returns its address.
     pub fn alloc(&mut self) -> Option<usize> {
-        self.bump_allocator.alloc()
+        let result = self.bump_allocator.alloc()?;
+        self.max_allocated = result;
+        Some(result)
+    }
+
+    /// Allocates and zero-fills a page of physical memory, and returns its address.
+    pub fn alloc_zeroed(&mut self) -> Option<usize> {
+        let result = self.alloc()?;
+        unsafe {
+            core::ptr::write_bytes(result as *mut u8, 0, mmu::PAGE_SIZE);
+        }
+        Some(result)
+    }
+
+    /// Returns the highest physical memory address that has been allocated at some point.
+    /// Used when setting up virtual memory in order to determine how far we need to create
+    /// identity mappings for early allocations.
+    pub fn get_max_allocated(&self) -> usize {
+        self.max_allocated
     }
 }
 
@@ -75,9 +101,9 @@ struct BumpAllocator {
 }
 
 impl BumpAllocator {
-    pub unsafe fn new() -> Self {
+    pub unsafe fn new(start_addr: usize) -> Self {
         // Relocate the memory map pointer
-        let memory_map_ptr = ((PHYS_MEMORY_MAP.as_mut_ptr() as usize)
+        let memory_map_ptr = ((BIOS_MEMORY_MAP.as_mut_ptr() as usize)
             + mmu::KERNEL_RELOC_BASE as usize) as *mut MemoryRegion;
         let map_count = (0..)
             .find(|&i| (*memory_map_ptr.add(i)).length == 0)
@@ -95,7 +121,7 @@ impl BumpAllocator {
             first_active_region_idx: 0,
             memory_map,
         };
-        result.next_addr = result.find_next(core::ptr::addr_of_mut!(PHYSALLOC_START) as usize);
+        result.next_addr = result.find_next(start_addr);
         result
     }
 

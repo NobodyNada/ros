@@ -2,10 +2,14 @@ pub mod boot_page_directory;
 pub mod pagetables;
 
 mod palloc;
-pub use palloc::palloc;
+pub use palloc::{palloc, palloc_zeroed};
 
 // NOTE: duplicated in kentry.asm
 pub const KERNEL_RELOC_BASE: u32 = 0xf0000000;
+
+extern "C" {
+    pub static KERNEL_VIRT_START: u8;
+}
 
 pub const PAGE_SHIFT: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;

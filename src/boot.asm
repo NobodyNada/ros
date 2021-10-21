@@ -5,8 +5,8 @@
 .section .boot, "ax"
 .code16
 
-.global _PHYS_MEMORY_MAP
-_PHYS_MEMORY_MAP = 0x7e00
+.global _BIOS_MEMORY_MAP
+_BIOS_MEMORY_MAP = 0x7e00
 
 .global _start
 _start:
@@ -18,7 +18,7 @@ _start:
     mov ss, ax
 
     // Detect available memory
-    mov edi, offset _PHYS_MEMORY_MAP
+    mov edi, offset _BIOS_MEMORY_MAP
     xor ebx, ebx
     mov edx, 0x534D4150
 memloop:
