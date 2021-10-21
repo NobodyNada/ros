@@ -34,7 +34,7 @@ pub struct InterruptFrame {
 }
 
 #[bitfield]
-#[repr(u64)]
+#[repr(u64, align(8))]
 #[derive(Copy, Clone)]
 struct InterruptGate {
     offset_lo: B16,
