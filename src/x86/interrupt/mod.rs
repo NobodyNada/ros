@@ -166,22 +166,6 @@ impl Default for InterruptDescriptorTable {
 impl InterruptDescriptorTable {
     /// Loads an interrupt descriptor table.
     pub fn lidt(&'static self) {
-        #[repr(C)]
-        struct Idtr {
-            padding: u16,
-            size: u16,
-            paddr: u32,
-        }
-
-        let idtr = Idtr {
-            padding: 0,
-            size: 256 - 1,
-            // TODO: this will be harder once we have "real" virtual memory
-            paddr: ((self as *const _) as u32) & !0xf0000000,
-        };
-
-        unsafe {
-            asm!("lidt [{}]", in(reg) core::ptr::addr_of!(idtr.size), options(nostack));
-        }
+        x86::DescriptorTableRegister::new(256 - 1, (self as *const _) as u32).lidt();
     }
 }
