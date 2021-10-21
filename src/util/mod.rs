@@ -1,4 +1,4 @@
 mod global;
 pub mod kprint;
 
-pub use global::Global;
+pub use global::{Global, Lazy};

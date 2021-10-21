@@ -122,6 +122,7 @@ pub struct Lazy<T> {
     resource: UnsafeCell<LazyStorage<T>>,
     state: AtomicU8,
 }
+unsafe impl<T: Sync> Sync for Lazy<T> {}
 
 impl<T> Lazy<T> {
     /// Creates a lazily-initialized resource.
