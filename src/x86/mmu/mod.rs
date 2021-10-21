@@ -1,4 +1,5 @@
 pub mod boot_page_directory;
+pub mod mmap;
 pub mod pagetables;
 
 mod palloc;
@@ -15,6 +16,9 @@ pub const PAGE_SHIFT: usize = 12;
 pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
 pub const PAGE_MASK: usize = !(PAGE_SIZE - 1);
 
+#[repr(align(4096))]
+pub struct PageAligned<T>(pub T);
+
 /// Aligns a memory address by rounding it down to the start of the page.
 pub const fn page_align_down(addr: usize) -> usize {
     addr & PAGE_MASK
@@ -28,4 +32,15 @@ pub const fn page_align_up(addr: usize) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// Sets up virtual & physical memory management.
+pub fn init_mmu() {
+    // Point the GDT to a virtual address rather than a physical address.
+    let mut gdtr = crate::x86::DescriptorTableRegister::sgdt();
+    gdtr.paddr |= KERNEL_RELOC_BASE;
+    gdtr.lgdt();
+
+    // Initialize memory mappings
+    mmap::MAPPER.take().unwrap().init()
 }

@@ -70,14 +70,14 @@ unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
 /// Rust entrypoint (called by kentry.asm).
 #[no_mangle]
 pub extern "C" fn main() -> ! {
-    kprintln!("Hello, world!");
+    kprintln!("good morning!");
 
     let idt = x86::interrupt::IDT.take_and_leak().unwrap();
     idt.lidt();
+    x86::mmu::init_mmu();
 
-    while let Some(addr) = x86::mmu::palloc::palloc() {
-        kprint!("{:#08x?}\t", addr);
-    }
+    let mapper = x86::mmu::mmap::MAPPER.take().unwrap();
+    kprintln!("Virtual memory mappings: {:#08x?}", *mapper);
 
     unsafe {
         *(0xeeeeeeee as *mut u32) = 0x12345678;
