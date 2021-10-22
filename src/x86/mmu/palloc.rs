@@ -1,21 +1,10 @@
-use crate::{prelude::*, util::Global, x86::mmu};
 
-/// Allocates a physical page.
-/// Returns the address of the page, or None if the system is out of memory.
-pub fn palloc() -> Option<usize> {
-    ALLOCATOR.take().unwrap().alloc()
-}
-
-/// Allocates and zero-fills a page of physical memory, and returns its address.
-pub fn palloc_zeroed() -> Option<usize> {
-    ALLOCATOR.take().unwrap().alloc_zeroed()
-}
+use crate::{prelude::*, x86::mmu};
 
 pub struct PhysAllocator {
     bump_allocator: BumpAllocator,
     max_allocated: usize,
 }
-pub static ALLOCATOR: Global<PhysAllocator> = Global::lazy(|| unsafe { PhysAllocator::new() });
 
 extern "C" {
     /// The memory map obtained from the BIOS in boot.asm.
@@ -60,7 +49,7 @@ impl MemoryRegion {
 }
 
 impl PhysAllocator {
-    unsafe fn new() -> Self {
+    pub(super) unsafe fn new() -> Self {
         let start = core::ptr::addr_of_mut!(PHYSALLOC_START) as usize;
         PhysAllocator {
             bump_allocator: BumpAllocator::new(start),

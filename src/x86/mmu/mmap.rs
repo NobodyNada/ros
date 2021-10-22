@@ -46,8 +46,8 @@
 
 #![allow(dead_code)]
 
-use crate::util::Global;
 use crate::x86::mmu::{self, pagetables};
+use mmu::palloc::PhysAllocator;
 use modular_bitfield::prelude::*;
 
 #[bitfield]
@@ -67,17 +67,26 @@ const PAGETABLE_BASE: usize = 0xffc00000;
 static ZERO_PAGE: mmu::PageAligned<[u8; mmu::PAGE_SIZE]> = mmu::PageAligned([0; mmu::PAGE_SIZE]);
 
 #[derive(Default)]
-pub struct MemoryMapper {
-    initialized: bool,
-}
-pub static MAPPER: Global<MemoryMapper> = Global::lazy_default();
+pub struct MemoryMapper;
 
 impl MemoryMapper {
-    pub fn map_zeroed(&mut self, _vaddr: usize, _pages: usize, _flags: MappingFlags) {
+    pub fn map_zeroed(
+        &mut self,
+        _palloc: PhysAllocator,
+        _vaddr: usize,
+        _count: usize,
+        _flags: MappingFlags,
+    ) {
         todo!()
     }
 
-    pub fn map(&mut self, _paddr: usize, _vaddr: usize, _count: usize, _flags: MappingFlags) {
+    pub fn map(
+        &mut self,
+        _palloc: &mut PhysAllocator,
+        _paddr: usize,
+        _vaddr: usize,
+        _flags: MappingFlags,
+    ) {
         todo!()
     }
 
@@ -107,15 +116,13 @@ impl MemoryMapper {
         unsafe { (*(self.get_pte_ptr(vaddr) as *const pagetables::Pte)).get() }
     }
 
-    pub fn init(&mut self) {
-        assert!(!self.initialized, "attempt to initialize MMU twice");
-        self.initialized = true;
-
+    pub(super) unsafe fn init(&mut self, palloc: &mut PhysAllocator) {
         let page_directory =
-            mmu::palloc_zeroed().expect("out of memory") as *mut pagetables::PageDirectory;
+            palloc.alloc_zeroed().expect("out of memory") as *mut pagetables::PageDirectory;
 
         unsafe fn map(
             page_directory: *mut pagetables::PageDirectory,
+            palloc: &mut PhysAllocator,
             paddr: usize,
             vaddr: usize,
             writable: bool,
@@ -127,7 +134,7 @@ impl MemoryMapper {
             let (pt, is_new) = match pde.get_pagetable() {
                 Some(pt) => (pt.ptaddr() as usize as *mut pagetables::Pagetable, false),
                 None => {
-                    let pt = mmu::palloc_zeroed().expect("out of memory");
+                    let pt = palloc.alloc_zeroed().expect("out of memory");
                     *pde = pagetables::Pde::pagetable(
                         pagetables::PagetablePde::new()
                             .with_ptaddr(pt as u32)
@@ -150,6 +157,7 @@ impl MemoryMapper {
             if is_new {
                 map(
                     page_directory,
+                    palloc,
                     pt as usize,
                     mmu::page_align_down(MemoryMapper::_get_pte_ptr(vaddr)),
                     true,
@@ -157,39 +165,34 @@ impl MemoryMapper {
             }
         }
 
-        unsafe {
-            let map_rw = |paddr, vaddr| map(page_directory, paddr, vaddr, true);
-            let map_ro = |paddr, vaddr| map(page_directory, paddr, vaddr, false);
+        let map_rw = |palloc: &mut _, paddr, vaddr| map(page_directory, palloc, paddr, vaddr, true);
+        let map_ro =
+            |palloc: &mut _, paddr, vaddr| map(page_directory, palloc, paddr, vaddr, false);
 
-            // Map the page directory itself
-            map_rw(page_directory as usize, PAGETABLE_BASE);
+        // Map the page directory itself
+        map_rw(palloc, page_directory as usize, PAGETABLE_BASE);
 
-            // Map the kernel's identity mappings
-            let mut paddr = 0;
-            while paddr <= mmu::palloc::ALLOCATOR.take().unwrap().get_max_allocated() {
-                map_rw(paddr, paddr + mmu::KERNEL_RELOC_BASE as usize);
-                paddr += mmu::PAGE_SIZE;
-            }
-
-            // Map the physical memory map, as read-only zeroes (for copy-on-write)
-            let zero = core::ptr::addr_of!(ZERO_PAGE) as usize - mmu::KERNEL_RELOC_BASE as usize;
-            let mut vaddr = PAGEINFO_BASE;
-            while vaddr < PAGETABLE_BASE {
-                map_ro(zero, vaddr);
-                vaddr += mmu::PAGE_SIZE;
-            }
-
-            asm!("mov cr3, {}", in(reg) page_directory);
+        // Map the kernel's identity mappings
+        let mut paddr = 0;
+        while paddr <= palloc.get_max_allocated() {
+            map_rw(palloc, paddr, paddr + mmu::KERNEL_RELOC_BASE as usize);
+            paddr += mmu::PAGE_SIZE;
         }
+
+        // Map the physical memory map, as read-only zeroes (for copy-on-write)
+        let zero = core::ptr::addr_of!(ZERO_PAGE) as usize - mmu::KERNEL_RELOC_BASE as usize;
+        let mut vaddr = PAGEINFO_BASE;
+        while vaddr < PAGETABLE_BASE {
+            map_ro(palloc, zero, vaddr);
+            vaddr += mmu::PAGE_SIZE;
+        }
+
+        asm!("mov cr3, {}", in(reg) page_directory);
     }
 }
 
 impl core::fmt::Debug for MemoryMapper {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        if !self.initialized {
-            return f.write_str("<memory mappings not initialized>");
-        }
-
         let mut f = f.debug_map();
 
         let mut printed_prev = true;

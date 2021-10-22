@@ -74,10 +74,12 @@ pub extern "C" fn main() -> ! {
 
     let idt = x86::interrupt::IDT.take_and_leak().unwrap();
     idt.lidt();
-    x86::mmu::init_mmu();
 
-    let mapper = x86::mmu::mmap::MAPPER.take().unwrap();
-    kprintln!("Virtual memory mappings: {:#08x?}", *mapper);
+    {
+        let mut mmu = x86::mmu::MMU.take().unwrap();
+        mmu.init();
+        kprintln!("Virtual memory mappings: {:#08x?}", mmu.get_mapper());
+    }
 
     unsafe {
         *(0xeeeeeeee as *mut u32) = 0x12345678;
