@@ -194,7 +194,7 @@ impl Pte {
     /// A PTE mapping a 4KB page.
     pub fn mapping(pte: MappingPte) -> Self {
         Self {
-            raw: u32::from_le_bytes(pte.into_bytes()),
+            raw: u32::from_le_bytes(pte.into_bytes()) | 1,
         }
     }
 
