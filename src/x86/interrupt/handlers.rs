@@ -1,4 +1,7 @@
-use super::{Interrupt, InterruptDescriptorTable, InterruptFrame};
+use crate::x86::{
+    interrupt::{Interrupt, InterruptDescriptorTable, InterruptFrame},
+    mmu,
+};
 
 pub fn default() -> InterruptDescriptorTable {
     InterruptDescriptorTable {
@@ -16,7 +19,7 @@ pub fn default() -> InterruptDescriptorTable {
         segment_not_present: Interrupt::undefined(),
         stack_segment_fault: Interrupt::undefined(),
         general_protection_fault: Interrupt::hw_interrupt(general_protection_fault),
-        page_fault: Interrupt::undefined(),
+        page_fault: Interrupt::hw_interrupt(mmu::pagefault::page_fault),
         _reserved: Interrupt::undefined(),
         math_fault: Interrupt::undefined(),
         alignment_check: Interrupt::undefined(),

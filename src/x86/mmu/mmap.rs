@@ -46,48 +46,106 @@
 
 #![allow(dead_code)]
 
+use core::mem::MaybeUninit;
+
 use crate::x86::mmu::{self, pagetables};
 use mmu::palloc::PhysAllocator;
 use modular_bitfield::prelude::*;
 
 #[bitfield]
+#[derive(Clone, Copy)]
 pub struct MappingFlags {
-    writable: bool,
-    executable: bool,
-    user_accessible: bool,
+    pub writable: bool,
+    pub user_accessible: bool,
 
     #[skip]
-    __: B5,
+    __: B6,
 }
 
-const PAGEINFO_BASE: usize = 0xff800000;
-const PAGETABLE_BASE: usize = 0xffc00000;
+pub(super) const PAGEINFO_BASE: usize = 0xff800000;
+pub(super) const PAGETABLE_BASE: usize = 0xffc00000;
 
 // A physical page which is always zeroed.
 static ZERO_PAGE: mmu::PageAligned<[u8; mmu::PAGE_SIZE]> = mmu::PageAligned([0; mmu::PAGE_SIZE]);
+fn zero_page_paddr() -> usize {
+    core::ptr::addr_of!(ZERO_PAGE) as usize & !(mmu::KERNEL_RELOC_BASE as usize)
+}
 
 #[derive(Default)]
 pub struct MemoryMapper;
 
 impl MemoryMapper {
+    /// Zero-initializes 'count' virtual pages (using copy-on-write semantics). Note that the 'writable' field of
+    /// the mapping flags is ignored.
     pub fn map_zeroed(
         &mut self,
-        _palloc: PhysAllocator,
-        _vaddr: usize,
-        _count: usize,
-        _flags: MappingFlags,
+        palloc: &mut PhysAllocator,
+        mut vaddr: usize,
+        mut count: usize,
+        flags: MappingFlags,
     ) {
-        todo!()
+        loop {
+            self.map(palloc, zero_page_paddr(), vaddr, flags.with_writable(false));
+
+            count -= 1;
+            if count == 0 {
+                break;
+            } else {
+                vaddr = vaddr
+                    .checked_add(mmu::PAGE_SIZE)
+                    .expect("virtual address out of range");
+                continue;
+            }
+        }
     }
 
     pub fn map(
         &mut self,
-        _palloc: &mut PhysAllocator,
-        _paddr: usize,
-        _vaddr: usize,
-        _flags: MappingFlags,
+        palloc: &mut PhysAllocator,
+        paddr: usize,
+        vaddr: usize,
+        flags: MappingFlags,
     ) {
-        todo!()
+        self.map_ensure_pagetable(palloc, vaddr);
+        unsafe {
+            self.map_no_alloc(paddr, vaddr, flags);
+        }
+    }
+
+    /// Ensures the pagetable for `vaddr` is allocated, listed in the page directory,
+    /// and not marked as copy-on-write.
+    fn map_ensure_pagetable(&mut self, palloc: &mut PhysAllocator, vaddr: usize) {
+        let ptaddr = self.get_pte_ptr(vaddr);
+        self.cow_if_needed(palloc, ptaddr);
+
+        let page_directory = PAGETABLE_BASE as *mut pagetables::PageDirectory;
+        let pde_index = vaddr >> 22;
+        let pde = unsafe { &mut (*page_directory).0[pde_index] };
+        let physptaddr = self.get_mapping(ptaddr).unwrap().physaddr() as usize;
+
+        if pde.get_pagetable().map(|m| m.ptaddr() as usize) != Some(physptaddr) {
+            *pde = pagetables::Pde::pagetable(
+                pagetables::PagetablePde::new()
+                    .with_ptaddr(physptaddr as u32)
+                    .with_is_writable(true)
+                    .with_userspace_accessible(true),
+            );
+        }
+    }
+
+    /// Like 'map', but guaranteed not to allocate any memory to store the pagetable.
+    /// The caller is required to ensure the pagetable is already allocated by calling
+    /// `map_ensure_pagetable`.
+    unsafe fn map_no_alloc(&mut self, paddr: usize, vaddr: usize, flags: MappingFlags) {
+        *(self.get_pte_ptr(vaddr) as *mut pagetables::Pte) = pagetables::Pte::mapping(
+            pagetables::MappingPte::new()
+                .with_physaddr(paddr as u32)
+                .with_is_writable(flags.writable())
+                .with_userspace_accessible(flags.user_accessible()),
+        );
+
+        // Flush the TLB for vaddr
+        asm!("invlpg [{}]", in(reg) vaddr, options(nomem, nostack));
     }
 
     fn _get_pte_ptr(vaddr: usize) -> usize {
@@ -116,9 +174,108 @@ impl MemoryMapper {
         unsafe { (*(self.get_pte_ptr(vaddr) as *const pagetables::Pte)).get() }
     }
 
+    pub fn mapping_to_flags(&self, mapping: pagetables::MappingPte) -> MappingFlags {
+        MappingFlags::new()
+            .with_writable(mapping.is_writable())
+            .with_user_accessible(mapping.userspace_accessible())
+    }
+
+    pub fn get_mapping_flags(&self, vaddr: usize) -> Option<MappingFlags> {
+        self.get_mapping(vaddr).map(|m| self.mapping_to_flags(m))
+    }
+
+    /// If copy-on-write is enabled for 'vaddr', copies to a new page (in order to ensure 'vaddr'
+    /// is writable). Returns true if a page was copied, or false if no copy was needed (or the
+    /// page was not marked copy-on-write).
+    ///
+    /// Panics if the page is not mapped.
+    pub fn cow_if_needed(&mut self, palloc: &mut PhysAllocator, vaddr: usize) -> bool {
+        let vaddr = mmu::page_align_down(vaddr);
+        let mapping = self.get_mapping(vaddr).expect("vaddr is unmapped");
+        let src_paddr = mapping.physaddr() as usize;
+
+        // Special case: the zero page is always copy-on-write
+        let zero_page_paddr =
+            core::ptr::addr_of!(ZERO_PAGE) as usize & !(mmu::KERNEL_RELOC_BASE as usize);
+        let is_zero_page = src_paddr == zero_page_paddr;
+
+        unsafe {
+            let info = (*palloc.get_page_info(src_paddr)).allocated;
+            if is_zero_page || (info.copy_on_write() && info.refcount() > 0) {
+                // We need to copy the page to a temporary buffer, map a new page, and copy the
+                // data into the new page. However, we need to be a little careful: we store the
+                // temporary buffer on the stack, so we want to avoid recursive calls to this
+                // function while the temporary buffer is alive, in order to avoid using a ton of
+                // stack space. But the physical memory allocator can trigger copy-on-writes, so we
+                // must ensure all allocations happen before creating a temporary buffer.
+
+                // First, allocate a new physical page to store the result.
+                let dest_paddr = palloc.alloc().expect("not enough memory for copy-on-write");
+
+                // Also preallocate the pagetable if necessary as the pagetable could itself be COW
+                self.map_ensure_pagetable(palloc, vaddr);
+
+                // Copy the old page to a temporary buffer, map the new page and copy the contents
+                // into the new page.
+                //
+                // NOTE: Do this in a separate stack frame.
+                #[inline(never)]
+                unsafe fn do_copy(
+                    mapper: &mut MemoryMapper,
+                    vaddr: usize,
+                    dest_paddr: usize,
+                    flags: MappingFlags,
+                ) {
+                    let mut contents: [MaybeUninit<u8>; mmu::PAGE_SIZE] =
+                        MaybeUninit::uninit().assume_init();
+                    let contents_ptr = contents.as_mut_ptr() as *mut u8;
+                    core::ptr::copy(vaddr as *const u8, contents_ptr, mmu::PAGE_SIZE);
+
+                    // Map a new physical page
+                    mapper.map_no_alloc(dest_paddr, vaddr, flags);
+
+                    // Copy the contents of the old page to the new page
+                    core::ptr::copy(contents_ptr, vaddr as *mut u8, mmu::PAGE_SIZE);
+                }
+
+                do_copy(
+                    self,
+                    vaddr,
+                    dest_paddr,
+                    self.mapping_to_flags(mapping).with_writable(true),
+                );
+
+                // Release our reference to the old page.
+                if !is_zero_page {
+                    palloc.free(src_paddr, self);
+                }
+
+                true
+            } else if info.copy_on_write() && info.refcount() == 0 {
+                // The page was copy-on-write, but there is now only one reference to it.
+                // We can just go ahead and mark it as owned.
+
+                *palloc.get_page_info_mut(src_paddr, self) = mmu::palloc::PhysPageInfo {
+                    allocated: Default::default(),
+                };
+                self.map(
+                    palloc,
+                    src_paddr,
+                    vaddr,
+                    self.mapping_to_flags(mapping).with_writable(true),
+                );
+
+                true
+            } else {
+                false
+            }
+        }
+    }
+
     pub(super) unsafe fn init(&mut self, palloc: &mut PhysAllocator) {
         let page_directory =
-            palloc.alloc_zeroed().expect("out of memory") as *mut pagetables::PageDirectory;
+            palloc.alloc().expect("out of memory") as *mut pagetables::PageDirectory;
+        core::ptr::write_bytes(page_directory as *mut u8, 0, mmu::PAGE_SIZE);
 
         unsafe fn map(
             page_directory: *mut pagetables::PageDirectory,
@@ -134,7 +291,8 @@ impl MemoryMapper {
             let (pt, is_new) = match pde.get_pagetable() {
                 Some(pt) => (pt.ptaddr() as usize as *mut pagetables::Pagetable, false),
                 None => {
-                    let pt = palloc.alloc_zeroed().expect("out of memory");
+                    let pt = palloc.alloc().expect("out of memory");
+                    core::ptr::write_bytes(pt as *mut u8, 0, mmu::PAGE_SIZE);
                     *pde = pagetables::Pde::pagetable(
                         pagetables::PagetablePde::new()
                             .with_ptaddr(pt as u32)

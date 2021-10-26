@@ -2,6 +2,7 @@ use crate::util::Global;
 
 pub mod boot_page_directory;
 pub mod mmap;
+pub mod pagefault;
 pub mod pagetables;
 pub mod palloc;
 
@@ -36,8 +37,8 @@ pub const fn page_align_up(addr: usize) -> Option<usize> {
 
 pub struct Mmu {
     initialized: bool,
-    allocator: palloc::PhysAllocator,
-    mapper: mmap::MemoryMapper,
+    pub allocator: palloc::PhysAllocator,
+    pub mapper: mmap::MemoryMapper,
 }
 pub static MMU: Global<Mmu> = Global::lazy(|| unsafe { Mmu::new() });
 
