@@ -57,7 +57,7 @@ impl Pde {
 
     /// If this PDE is a direct 4MB mapping, returns the mapping info.
     pub fn get_mapping(&self) -> Option<MappingPde> {
-        if self.is_mapping() {
+        if self.is_present() && self.is_mapping() {
             Some(MappingPde::from_bytes(self.raw.to_le_bytes()))
         } else {
             None
@@ -66,7 +66,7 @@ impl Pde {
 
     /// If this PDE is a pagetable reference, returns the pagetable info.
     pub fn get_pagetable(&self) -> Option<PagetablePde> {
-        if self.is_pagetable() {
+        if self.is_present() && self.is_pagetable() {
             Some(PagetablePde::from_bytes(self.raw.to_le_bytes()))
         } else {
             None
@@ -194,7 +194,7 @@ impl Pte {
     /// A PTE mapping a 4KB page.
     pub fn mapping(pte: MappingPte) -> Self {
         Self {
-            raw: u32::from_le_bytes(pte.into_bytes()),
+            raw: u32::from_le_bytes(pte.into_bytes()) | 1,
         }
     }
 

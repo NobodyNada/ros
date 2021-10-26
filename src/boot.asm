@@ -5,14 +5,42 @@
 .section .boot, "ax"
 .code16
 
+.global _BIOS_MEMORY_MAP
+_BIOS_MEMORY_MAP = 0x7e00
+
 .global _start
 _start:
     cli
     // Set up segment registers
-    xor ax, ax
+    xor eax, eax
     mov ds, ax
     mov es, ax
     mov ss, ax
+
+    // Detect available memory
+    mov edi, offset _BIOS_MEMORY_MAP
+    xor ebx, ebx
+    mov edx, 0x534D4150
+memloop:
+    mov eax, 0xE820
+    mov ecx, 0x18
+    int 0x15
+    // If the BIOS returned only 5 words, initialize the 6th
+    mov dword ptr [ecx + edi], 0x1
+    jc memdone
+    test ebx, ebx
+    jz memdone
+
+    // If this entry is valid (size is nonzero), update pointer to point to next entry.
+    // Otherwise, just rewrite the same entry again.
+    test dword ptr [di + 0x8], 0xffffffff
+    jz memloop
+    add di, 0x18
+    jmp memloop
+
+memdone:
+    // Terminate the list with a zero-sized entry
+    mov dword ptr [di + 0x28], 0
 
     // Enable A20
     in al, 0x92
