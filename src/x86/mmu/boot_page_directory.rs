@@ -11,8 +11,8 @@ const fn generate_boot_page_directory() -> pagetables::PageDirectory {
     // unfortunately we can't use bitfield functions at compile time,
     // so we have to write out the PDEs (mostly) by hand
 
-    const PDE_SIZE_BITS: u32 = 22;
-    const FLAGS: u32 = 0x2; // writable
+    const PDE_SIZE_BITS: usize = 22;
+    const FLAGS: usize = 0x2; // writable
 
     // also, we can't (yet) use for loops at compile time, so we have to use a while loop
     // ¯\_(ツ)_/¯

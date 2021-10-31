@@ -26,11 +26,11 @@ pub static IDT: Global<InterruptDescriptorTable> = Global::lazy_default();
 #[repr(C)]
 #[derive(Debug)]
 pub struct InterruptFrame {
-    eip: u32,
-    cs: u32,
-    eflags: u32,
-    esp: u32,
-    ss: u32,
+    eip: usize,
+    cs: usize,
+    eflags: usize,
+    esp: usize,
+    ss: usize,
 }
 
 #[bitfield]
@@ -47,7 +47,7 @@ struct InterruptGate {
     offset_hi: B16,
 }
 impl InterruptGate {
-    pub unsafe fn create(offset: u32, segment: u16, dpl: u8, is_trap: bool) -> Self {
+    pub unsafe fn create(offset: usize, segment: u16, dpl: u8, is_trap: bool) -> Self {
         let result = Self::new()
             .with_offset_hi((offset >> 16) as u16)
             .with_offset_lo(offset as u16)
@@ -64,19 +64,19 @@ impl InterruptGate {
 
 #[allow(clippy::missing_safety_doc)]
 pub unsafe trait InterruptHandler {
-    fn to_offset(&self) -> u32;
+    fn to_offset(&self) -> usize;
 }
 type NoErr = extern "x86-interrupt" fn(InterruptFrame);
-type WithErr = extern "x86-interrupt" fn(InterruptFrame, u32);
+type WithErr = extern "x86-interrupt" fn(InterruptFrame, usize);
 
 unsafe impl InterruptHandler for NoErr {
-    fn to_offset(&self) -> u32 {
-        (*self as usize) as u32
+    fn to_offset(&self) -> usize {
+        (*self as usize) as usize
     }
 }
 unsafe impl InterruptHandler for WithErr {
-    fn to_offset(&self) -> u32 {
-        (*self as usize) as u32
+    fn to_offset(&self) -> usize {
+        (*self as usize) as usize
     }
 }
 
@@ -85,7 +85,7 @@ unsafe impl InterruptHandler for WithErr {
 pub struct Interrupt<T: InterruptHandler>(InterruptGate, core::marker::PhantomData<T>);
 
 impl<T: InterruptHandler> Interrupt<T> {
-    unsafe fn create(offset: u32, segment: u16, dpl: u8, is_trap: bool) -> Self {
+    unsafe fn create(offset: usize, segment: u16, dpl: u8, is_trap: bool) -> Self {
         Self(
             InterruptGate::create(offset, segment, dpl, is_trap),
             PhantomData::default(),
@@ -166,6 +166,6 @@ impl Default for InterruptDescriptorTable {
 impl InterruptDescriptorTable {
     /// Loads an interrupt descriptor table.
     pub fn lidt(&'static self) {
-        x86::DescriptorTableRegister::new(256 - 1, (self as *const _) as u32).lidt();
+        x86::DescriptorTableRegister::new(256 - 1, (self as *const _) as usize).lidt();
     }
 }

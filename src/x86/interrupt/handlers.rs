@@ -32,10 +32,10 @@ pub fn default() -> InterruptDescriptorTable {
     }
 }
 
-extern "x86-interrupt" fn general_protection_fault(frame: InterruptFrame, code: u32) {
+extern "x86-interrupt" fn general_protection_fault(frame: InterruptFrame, code: usize) {
     panic!("General protection fault {:#x?}: {:#x?}", code, frame)
 }
 
-extern "x86-interrupt" fn double_fault(frame: InterruptFrame, _code: u32) {
+extern "x86-interrupt" fn double_fault(frame: InterruptFrame, _code: usize) {
     panic!("Double fault: {:#x?}", frame)
 }

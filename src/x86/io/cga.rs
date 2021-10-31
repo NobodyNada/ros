@@ -11,7 +11,7 @@ pub const CGA_WIDTH: usize = 80;
 pub const CGA_HEIGHT: usize = 25;
 
 pub const CGA_REG_BASE: u16 = 0x3D4;
-pub const CGA_MEM_BASE: u32 = 0xF00B8000;
+pub const CGA_MEM_BASE: usize = 0xF00B8000;
 
 /// A simple CGA driver for displaying a console.
 pub struct Cga {

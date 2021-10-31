@@ -17,12 +17,12 @@ pub fn cs() -> u16 {
 pub struct DescriptorTableRegister {
     padding: u16,
     pub size: u16,
-    pub paddr: u32,
+    pub paddr: usize,
 }
 
 impl DescriptorTableRegister {
     /// Creates a new [IG]DTR.
-    pub fn new(size: u16, paddr: u32) -> Self {
+    pub fn new(size: u16, paddr: usize) -> Self {
         DescriptorTableRegister {
             padding: 0,
             size,
