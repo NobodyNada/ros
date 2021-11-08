@@ -4,7 +4,7 @@ use crate::x86::{interrupt, mmu};
 use modular_bitfield::prelude::*;
 
 #[allow(dead_code, clippy::identity_op)]
-pub extern "x86-interrupt" fn page_fault(frame: interrupt::InterruptFrame, code: u32) {
+pub extern "x86-interrupt" fn page_fault(frame: interrupt::InterruptFrame, code: usize) {
     #[repr(u32)]
     #[bitfield]
     #[derive(Debug)]
@@ -34,7 +34,7 @@ pub extern "x86-interrupt" fn page_fault(frame: interrupt::InterruptFrame, code:
     unsafe {
         asm!("mov {}, cr2", out(reg) vaddr, options(nomem, nostack));
     }
-    let code = PageFaultCode::from(code);
+    let code = PageFaultCode::from(code as u32);
 
     let unhandled = |msg| {
         panic!(

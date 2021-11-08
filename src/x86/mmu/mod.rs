@@ -7,7 +7,7 @@ pub mod pagetables;
 pub mod palloc;
 
 // NOTE: duplicated in kentry.asm
-pub const KERNEL_RELOC_BASE: u32 = 0xf0000000;
+pub const KERNEL_RELOC_BASE: usize = 0xf0000000;
 
 extern "C" {
     pub static KERNEL_VIRT_START: u8;
