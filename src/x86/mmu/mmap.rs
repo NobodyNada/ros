@@ -112,11 +112,81 @@ impl MemoryMapper {
         }
     }
 
+    pub fn unmap(&mut self, palloc: &mut PhysAllocator, vaddr: usize) {
+        self.map_ensure_pagetable(palloc, vaddr);
+        unsafe {
+            *(self.get_pte_ptr(vaddr) as *mut pagetables::Pte) = pagetables::Pte::unmapped();
+        }
+    }
+
+    /// Finds and returns a block of 'pages' unmapped pages in the kernel portion of the virtual address space.
+    pub fn find_unused_kernelspace(&self, pages: usize) -> Option<usize> {
+        let mut vaddr = mmu::KERNEL_RELOC_BASE as usize;
+        let mut base = vaddr;
+        let mut contiguous: usize = 0;
+
+        loop {
+            if self.get_mapping(vaddr).is_none() {
+                contiguous += 1;
+                if contiguous == pages {
+                    return Some(base);
+                }
+                vaddr = vaddr.checked_add(mmu::PAGE_SIZE)?;
+            } else {
+                contiguous = 0;
+                vaddr = vaddr.checked_add(mmu::PAGE_SIZE)?;
+                base = vaddr;
+            }
+        }
+    }
+
+    /// Finds and returns a block of 'pages' unmapped pages in the user portion of the virtual address space.
+    pub fn find_unused_userspace(&self, pages: usize) -> Option<usize> {
+        let mut vaddr = 1024 * mmu::PAGE_SIZE as usize; // skip the null page
+        let mut base = vaddr;
+        let mut contiguous: usize = 0;
+
+        while vaddr < mmu::KERNEL_RELOC_BASE as usize {
+            if self.get_mapping(vaddr).is_none() {
+                contiguous += 1;
+                if contiguous == pages {
+                    return Some(base);
+                }
+                vaddr += mmu::PAGE_SIZE;
+            } else {
+                contiguous = 0;
+                vaddr += mmu::PAGE_SIZE;
+                base = vaddr;
+            }
+        }
+
+        // if we ran into kernelspace, we didn't find a contiguous block big enough
+        None
+    }
+
     /// Ensures the pagetable for `vaddr` is allocated, listed in the page directory,
     /// and not marked as copy-on-write.
     fn map_ensure_pagetable(&mut self, palloc: &mut PhysAllocator, vaddr: usize) {
         let ptaddr = self.get_pte_ptr(vaddr);
-        self.cow_if_needed(palloc, ptaddr);
+        if self.get_mapping(ptaddr).is_none() {
+            // If the PTE is unmapped, map it.
+            let ptpaddr = palloc.alloc().expect("out of memory");
+            self.map(
+                palloc,
+                ptpaddr,
+                ptaddr,
+                MappingFlags::new().with_writable(true),
+            );
+
+            // Zero the pagetable.
+            unsafe {
+                let pagetable = ptaddr as *mut u8;
+                pagetable.write_bytes(0, mmu::PAGE_SIZE);
+            }
+        } else {
+            // The pagetable is already mapped, but it may be copy-on-write.
+            self.cow_if_needed(palloc, ptaddr);
+        }
 
         let page_directory = PAGETABLE_BASE as *mut pagetables::PageDirectory;
         let pde_index = vaddr >> 22;
