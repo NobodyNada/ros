@@ -5,7 +5,7 @@
 #![no_main]
 // Enable unstable (nightly-only) features that we need:
 //   Inline assembly
-#![feature(asm, global_asm)]
+#![feature(asm, global_asm, asm_const, asm_sym, naked_functions)]
 //   Compiler support for x86 interrupt calling conventions
 #![feature(abi_x86_interrupt)]
 //   PanicInfo::message() function

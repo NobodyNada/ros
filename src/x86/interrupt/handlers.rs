@@ -1,5 +1,6 @@
+use crate::isr_witherr;
 use crate::x86::{
-    interrupt::{Interrupt, InterruptDescriptorTable, InterruptFrame},
+    interrupt::{HwInterruptNum, Interrupt, InterruptDescriptorTable, InterruptFrame},
     mmu,
 };
 
@@ -13,13 +14,22 @@ pub fn default() -> InterruptDescriptorTable {
         bound_range: Interrupt::undefined(),
         invalid_opcode: Interrupt::undefined(),
         device_not_available: Interrupt::undefined(),
-        double_fault: Interrupt::hw_interrupt(double_fault),
+        double_fault: Interrupt::hw_interrupt(isr_witherr!(
+            HwInterruptNum::DoubleFault as usize,
+            double_fault
+        )),
         coprocessor_segment: Interrupt::undefined(),
         invalid_tss: Interrupt::undefined(),
         segment_not_present: Interrupt::undefined(),
         stack_segment_fault: Interrupt::undefined(),
-        general_protection_fault: Interrupt::hw_interrupt(general_protection_fault),
-        page_fault: Interrupt::hw_interrupt(mmu::pagefault::page_fault),
+        general_protection_fault: Interrupt::hw_interrupt(isr_witherr!(
+            HwInterruptNum::GeneralProtectionFault as usize,
+            general_protection_fault
+        )),
+        page_fault: Interrupt::hw_interrupt(isr_witherr!(
+            HwInterruptNum::PageFault as usize,
+            mmu::pagefault::page_fault
+        )),
         _reserved: Interrupt::undefined(),
         math_fault: Interrupt::undefined(),
         alignment_check: Interrupt::undefined(),
@@ -32,10 +42,10 @@ pub fn default() -> InterruptDescriptorTable {
     }
 }
 
-extern "x86-interrupt" fn general_protection_fault(frame: InterruptFrame, code: usize) {
-    panic!("General protection fault {:#x?}: {:#x?}", code, frame)
+fn general_protection_fault(frame: &mut InterruptFrame) {
+    panic!("General protection fault {:#x?}", frame)
 }
 
-extern "x86-interrupt" fn double_fault(frame: InterruptFrame, _code: usize) {
+fn double_fault(frame: &mut InterruptFrame) {
     panic!("Double fault: {:#x?}", frame)
 }

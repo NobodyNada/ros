@@ -26,11 +26,29 @@ pub static IDT: Global<InterruptDescriptorTable> = Global::lazy_default();
 #[repr(C)]
 #[derive(Debug)]
 pub struct InterruptFrame {
-    eip: usize,
-    cs: usize,
-    eflags: usize,
-    esp: usize,
-    ss: usize,
+    // Pushed by ISR
+    // Copy of return address and frame pointer so backtraces work
+    pub _ebp: usize,
+    pub _eip: usize,
+
+    pub edi: usize,
+    pub esi: usize,
+    pub ebp: usize,
+    _esp: usize,
+    pub ebx: usize,
+    pub edx: usize,
+    pub ecx: usize,
+    pub eax: usize,
+
+    pub id: usize,
+    pub code: usize,
+    // ---
+    // Pushed by CPU
+    pub eip: usize,
+    pub cs: usize,
+    pub eflags: usize,
+    pub user_esp: usize,
+    pub user_ss: usize,
 }
 
 #[bitfield]
@@ -62,21 +80,96 @@ impl InterruptGate {
     }
 }
 
+#[macro_export]
+macro_rules! isr_witherr {
+    ($id:expr, $handler:expr) => {{
+        unsafe extern "C" fn call_handler(frame: &mut InterruptFrame) {
+            frame._ebp = frame.ebp;
+            frame._eip = frame.eip;
+            $handler(frame);
+        }
+
+        #[naked]
+        unsafe extern "x86-interrupt" fn isr() {
+            asm!(
+                "push dword ptr {id}",
+                "pushad",
+
+                // push the return address & EBP again, so that backtraces will work through interrupts
+                "sub esp, 8", // just reserve space, call_handler will write the correct values
+                "mov ebp, esp",
+
+                // call the handler with the frame as an argument
+                "push esp",
+                "call {handler}",
+
+                "add esp, 8", // pop return address and EIP
+                "popad",
+                "add esp, 4", // pop interrupt ID
+                "iret",
+                id = const $id,
+                handler = sym call_handler,
+                options(noreturn)
+            );
+        }
+        $crate::x86::interrupt::WithErr(isr)
+    }};
+}
+
+#[macro_export]
+macro_rules! isr_noerr {
+    ($id:expr, $handler:expr) => {{
+        unsafe extern fn call_handler(frame: InterruptFrame) {
+            frame._ebp = frame.epb;
+            frame._eip = frame.eip;
+            $handler(frame);
+        }
+
+        #[naked]
+        unsafe extern "x86-interrupt" fn isr() {
+            asm!(
+                "push dword ptr 0", // push 0 for the code
+                "push dword ptr {id}",
+                "pushad",
+
+                // push the return address & EBP again, so that backtraces will work through interrupts
+                "sub esp, 8", // just reserve space, call_handler will write the correct values
+                "mov ebp, esp",
+
+                "call {handler}",
+
+                "add esp, 8", // pop return address and EIP
+                "popad"
+                "add esp, 8", // pop interrupt ID & code
+                "iret",
+                id = const $id,
+                handler = sym call_handler,
+                options(noreturn)
+            );
+        }
+        $crate::x86::interrupt::NoErr(isr)
+    }};
+}
+
 #[allow(clippy::missing_safety_doc)]
-pub unsafe trait InterruptHandler {
+pub unsafe trait InterruptHandler: Copy {
     fn to_offset(&self) -> usize;
 }
-type NoErr = extern "x86-interrupt" fn(InterruptFrame);
-type WithErr = extern "x86-interrupt" fn(InterruptFrame, usize);
+
+#[derive(Copy, Clone)]
+pub struct NoErr(unsafe extern "x86-interrupt" fn());
+
+#[derive(Copy, Clone)]
+pub struct WithErr(unsafe extern "x86-interrupt" fn());
 
 unsafe impl InterruptHandler for NoErr {
     fn to_offset(&self) -> usize {
-        (*self as usize) as usize
+        self.0 as usize
     }
 }
 unsafe impl InterruptHandler for WithErr {
     fn to_offset(&self) -> usize {
-        (*self as usize) as usize
+        self.0 as usize
     }
 }
 
@@ -168,4 +261,62 @@ impl InterruptDescriptorTable {
     pub fn lidt(&'static self) {
         x86::DescriptorTableRegister::new(256 - 1, (self as *const _) as usize).lidt();
     }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct InterruptNum(usize);
+
+impl InterruptNum {
+    const RESERVED_1: usize = 15;
+    const HW_MAX: usize = HwInterruptNum::ControlProtectionException as usize;
+    const USER_MIN: usize = 32;
+    const USER_MAX: usize = 255;
+
+    pub fn is_hw(&self) -> bool {
+        match self.0 {
+            Self::RESERVED_1 => false,
+            0..=Self::HW_MAX => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_user(&self) -> bool {
+        (Self::USER_MIN..=Self::USER_MAX).contains(&self.0)
+    }
+
+    fn get_hw(&self) -> Option<HwInterruptNum> {
+        if self.is_hw() {
+            Some(unsafe { core::mem::transmute(self) })
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(usize)]
+pub enum HwInterruptNum {
+    DivideError = 0,
+    DebugException = 1,
+    NMI = 2,
+    Breakpoint = 3,
+    Overflow = 4,
+    BoundRange = 5,
+    InvalidOpcode = 6,
+    DeviceNotAvailable = 7,
+    DoubleFault = 8,
+    CoprocessorSegment = 9,
+    InvalidTSS = 10,
+    SegmentNotPresent = 11,
+    StackSegmentFault = 12,
+    GeneralProtectionFault = 13,
+    PageFault = 14,
+    // 15 is reserved
+    MathFault = 16,
+    AlignmentCheck = 17,
+    MachineCheck = 18,
+    SimdException = 19,
+    VirtualizationException = 20,
+    ControlProtectionException = 21,
 }
