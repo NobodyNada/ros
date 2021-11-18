@@ -1,5 +1,3 @@
-ENTRY(_start)
-
 SECTIONS {
     .boot 0x7c00 : AT(0x0) {
         *(.boot)

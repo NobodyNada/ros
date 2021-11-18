@@ -15,3 +15,9 @@ ros requires a Rust nightly toolchain with the `rust-src` component installed. I
     cargo run -- -n             # launch without a GUI
     cargo run --release -- -n   # recommended for running on os2 servers
     cargo run -- -dn            # recommended for debugging on os2 servers
+
+To run usermode applications, specify the name of the application (or a path to an ELF file), for example:
+
+    cargo run --release -- helloworld
+
+Note that `cargo run` does not currently automatically compile applications, so be sure to `cargo build` first.

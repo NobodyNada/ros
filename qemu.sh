@@ -15,6 +15,7 @@ function exists() {
 }
 
 declare -a options
+declare -a binaries
 file=
 debug=0
 nox=0
@@ -35,14 +36,14 @@ while [ ! -z "$1" ]; do
         esac
     done
     shift $((OPTIND-1))
-    [ -z "$1" ] || { [ -z "$file" ] && file=$1; } || usage
+    [ -z "$1" ] || { [ -z "$file" ] && file=$1 || binaries+=("$1"); } || usage
     OPTIND=2
 done
 
 [ -z "$file" ] && usage
 
 image="$file.img"
-./mkimage.sh -i "$file" "$image"
+./mkimage.sh -i "$file" -o "$image" "${binaries[@]}"
 
 options+=(-drive "format=raw,media=disk,index=0,file=$image" -serial mon:stdio -L "$(dirname "$script")/qemu_roms")
 if [ $nox -eq 1 ]; then

@@ -3,11 +3,16 @@ set -e
 
 script=$0
 function usage() {
-    echo "usage: $script [-i|--input infile | --release] [outfile]"
+    echo "usage: $script [-i|--input infile | --release] [-o outfile] [binaries...]"
     exit 1
 }
 
-release=0
+declare -a binaries
+if [ '$PROFILE' = 'release' ]; then
+    release=1
+else
+    release=0
+fi
 infile=
 while [ ! -z "$1" ]; do
     case "$1" in
@@ -20,8 +25,12 @@ while [ ! -z "$1" ]; do
             [ -z "$infile" ] && [ ! -z "$1" ] && [ $release -eq 0 ] || usage
             infile=$1
             ;;
+        -o|--output)
+            shift
+            [ -z "$outfile" ] && [ ! -z "$1" ] && outfile=$1 || usage
+            ;;
         *)
-            [ -z "$outfile" ] && file=$1 || usage
+            binaries+=("$1")
             ;;
     esac
     shift
@@ -44,6 +53,18 @@ if [ -z "$infile" ]; then
     fi
 fi
 [ ! -z "$outfile" ] || outfile="$infile.img"
-objcopy -j .boot -j .kernel -j .symtab -j .strtab -O binary "$infile" "$outfile"
+objcopy -j .boot -j .kernel -O binary "$infile" "$outfile"
+
+for binary in "${binaries[@]}"; do
+    if [ -f "$binary" ]; then 
+        cat "$binary"
+    elif [ -f "$(dirname "$infile")/$binary" ]; then
+        cat "$(dirname "$infile")/$binary"
+    else
+        echo "No such binary '$binary'" >&2
+        echo "Try building it 'cargo build' or 'cargo build --release'" >&2
+        exit 1
+    fi >> "$outfile"
+done
 
 echo "Image written to $outfile" >&2
