@@ -190,6 +190,7 @@ impl MemoryMapper {
 
         let page_directory = PAGETABLE_BASE as *mut pagetables::PageDirectory;
         let pde_index = vaddr >> 22;
+        assert_ne!(pde_index, 0, "attempt to map a page in the null region");
         let pde = unsafe { &mut (*page_directory).0[pde_index] };
         let physptaddr = self.get_mapping(ptaddr).unwrap().physaddr() as usize;
 
@@ -238,6 +239,11 @@ impl MemoryMapper {
         if vaddr < self.get_pte_ptr(PAGETABLE_BASE)
             && self.get_mapping(self.get_pte_ptr(vaddr)).is_none()
         {
+            return None;
+        }
+
+        // Null pages are never mapped.
+        if vaddr < (1 << 22) {
             return None;
         }
 
