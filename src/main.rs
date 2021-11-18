@@ -87,12 +87,21 @@ pub extern "C" fn main() -> ! {
                           core::ptr::addr_of!(mmu::KERNEL_VIRT_END)
                               .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
                       };
+    let mut is_first = true;
     while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
+        if is_first {
+            is_first = false;
+        } else {
+            // Create a new MMU environment.
+            let mut mmu = mmu::MMU.take().unwrap();
+            let mmu = &mut *mmu;
+            mmu.mapper.fork(&mut mmu.allocator);
+        }
         kprintln!("Found ELF: {:#08x?}", header);
         header.load().expect("I/O error");
         offset = header.start_offset as usize + header.max_offset as usize;
+        kprintln!("Memory mappings: {:#08x?}", mmu::MMU.take().unwrap().mapper);
     }
 
-    kprintln!("Memory mappings: {:#08x?}", mmu::MMU.take().unwrap().mapper);
     halt()
 }

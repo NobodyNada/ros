@@ -75,6 +75,24 @@ fn zero_page_paddr() -> usize {
 pub struct MemoryMapper;
 
 impl MemoryMapper {
+    /// Returns the physical address of the active page directory.
+    pub fn cr3(&mut self) -> usize {
+        let result: usize;
+        unsafe {
+            asm!("mov {}, cr3", out(reg) result, options(nomem, nostack));
+        }
+        result
+    }
+
+    /// Sets the active page directory.
+    ///
+    /// # Safety
+    ///
+    /// The caller is responsible for ensuring cr3 is valid and properly initialized.
+    pub unsafe fn set_cr3(&mut self, cr3: usize) {
+        asm!("mov cr3, {}", in(reg) cr3);
+    }
+
     /// Zero-initializes 'count' virtual pages (using copy-on-write semantics). Note that the 'writable' field of
     /// the mapping flags is ignored.
     pub fn map_zeroed(
@@ -216,7 +234,7 @@ impl MemoryMapper {
         );
 
         // Flush the TLB for vaddr
-        asm!("invlpg [{}]", in(reg) vaddr, options(nomem, nostack));
+        asm!("invlpg [{}]", in(reg) vaddr, options(nostack));
     }
 
     fn _get_pte_ptr(vaddr: usize) -> usize {
@@ -260,6 +278,191 @@ impl MemoryMapper {
         self.get_mapping(vaddr).map(|m| self.mapping_to_flags(m))
     }
 
+    /// Creates a set of mappings for a new process.
+    /// Kernelspace is shared, while userspace is marked as copy-on-write.
+    ///
+    /// Returns the new value of cr3.
+    pub fn fork(&mut self, palloc: &mut PhysAllocator) -> usize {
+        // Mark all userspace pages as copy-on-write
+        for pde_idx in 0..(mmu::KERNEL_RELOC_BASE >> 22) {
+            unsafe {
+                if !(*(PAGETABLE_BASE as *const pagetables::PageDirectory)).0[pde_idx].is_present()
+                {
+                    continue;
+                }
+            }
+            for pte_idx in 0..1024 {
+                let vaddr = (pde_idx << 22) | (pte_idx << 12);
+                if self.get_mapping(vaddr).is_some() {
+                    unsafe {
+                        palloc.share_vaddr_cow(vaddr, self);
+                    }
+                }
+            }
+        }
+
+        // Mark all userspace pagetables as copy-on-write as well
+        for vaddr in (PAGETABLE_BASE..self.get_pte_ptr(PAGETABLE_BASE))
+            .step_by(mmu::PAGE_SIZE)
+            .skip(1)
+        {
+            if self.get_mapping(vaddr).is_some() {
+                unsafe {
+                    palloc.share_vaddr_cow(vaddr, self);
+                }
+            }
+        }
+
+        // Copy the pagetable that maps all the pagetables. We have to do this carefully, since
+        // this pagetable maps itself.
+        let meta_pagetable_vaddr = self.get_pte_ptr(PAGETABLE_BASE);
+        let meta_pagetable_mapping = self.get_mapping(meta_pagetable_vaddr).unwrap();
+        let meta_pagetable_flags = self.mapping_to_flags(meta_pagetable_mapping);
+        // Allocate the new metapagetable at a permanent physical address & temporary virtual address
+        let new_meta_pagetable_paddr = palloc.alloc().expect("out of memory");
+        let new_meta_pagetable_tmp_vaddr = self
+            .find_unused_kernelspace(1)
+            .expect("out of virtual address space");
+        self.map(
+            palloc,
+            new_meta_pagetable_paddr,
+            new_meta_pagetable_tmp_vaddr,
+            meta_pagetable_flags,
+        );
+        unsafe {
+            // Copy the old page to the new one
+            core::ptr::copy_nonoverlapping(
+                meta_pagetable_vaddr as *mut u8,
+                new_meta_pagetable_tmp_vaddr as *mut u8,
+                mmu::PAGE_SIZE,
+            );
+            // Update the new metapagetable to reference itself, rather than the old metapagetable.
+            *(*(new_meta_pagetable_tmp_vaddr as *mut pagetables::Pagetable))
+                .0
+                .last_mut()
+                .unwrap() = pagetables::Pte::mapping(
+                pagetables::MappingPte::new()
+                    .with_physaddr(new_meta_pagetable_paddr as u32)
+                    .with_is_writable(meta_pagetable_flags.writable())
+                    .with_userspace_accessible(meta_pagetable_flags.user_accessible()),
+            )
+        }
+
+        // Copy the page directory
+        let old_cr3 = self.cr3();
+        let new_cr3 = palloc.alloc().expect("out of memory");
+        let cr3_flags = self.get_mapping_flags(PAGETABLE_BASE).unwrap();
+        self.move_page(palloc, PAGETABLE_BASE, new_cr3, cr3_flags);
+        unsafe {
+            // The new page directory is mapped, but not yet active. Point it at the correct
+            // metapagetable.
+            (*(PAGETABLE_BASE as *mut pagetables::PageDirectory)).0
+                [self.get_pte_ptr(PAGETABLE_BASE) >> 22] = pagetables::Pde::pagetable(
+                pagetables::PagetablePde::new()
+                    .with_ptaddr(new_meta_pagetable_paddr as u32)
+                    .with_is_writable(meta_pagetable_flags.writable())
+                    .with_userspace_accessible(meta_pagetable_flags.user_accessible()),
+            );
+
+            // We're still using the old metapagetable from the old page directory; it shouldn't be referencing the new page directory.
+            // use no_alloc so we don't unexpectedly write to the page directory
+            self.map_no_alloc(old_cr3, PAGETABLE_BASE, cr3_flags);
+
+            // Also, we don't need the temporary copy of the new metapagetable anymore.
+            self.unmap(palloc, new_meta_pagetable_tmp_vaddr);
+
+            self.set_cr3(new_cr3);
+
+            // The new metapagetable should be referencing the new page directory, though.
+            self.map_no_alloc(new_cr3, PAGETABLE_BASE, cr3_flags);
+
+            // It doesn't need that temporary copy either.
+            self.unmap(palloc, new_meta_pagetable_tmp_vaddr);
+        }
+
+        new_cr3
+    }
+
+    /// Destroys the current memory-mapping environment & switches to another.
+    ///
+    /// # Safety
+    ///
+    /// The caller is responsible for ensuring the new environemnt is valid & the old environment
+    /// is no longer used.
+    pub unsafe fn destroy_env(&mut self, palloc: &mut PhysAllocator, new_cr3: usize) {
+        // Deallocate all userspace pages
+        for vaddr in (0..mmu::KERNEL_RELOC_BASE).step_by(mmu::PAGE_SIZE) {
+            if let Some(mapping) = self.get_mapping(vaddr) {
+                palloc.free(mapping.physaddr() as usize, self);
+            }
+        }
+
+        // Deallocate all userspace pagetables
+        for vaddr in (mmu::KERNEL_RELOC_BASE..self.get_pte_ptr(mmu::KERNEL_RELOC_BASE))
+            .step_by(mmu::PAGE_SIZE)
+            .skip(1)
+        {
+            if let Some(mapping) = self.get_mapping(vaddr) {
+                palloc.free(mapping.physaddr() as usize, self);
+            }
+        }
+
+        // Save the page directory and meta-pagetable so we can deallocate those after abandoning
+        // this environment
+        let pagedir_paddr = self.cr3();
+        let meta_pagetable_paddr = self
+            .get_mapping(self.get_pte_ptr(PAGETABLE_BASE))
+            .unwrap()
+            .physaddr() as usize;
+
+        // Switch to the new environment
+        self.set_cr3(new_cr3);
+
+        palloc.free(pagedir_paddr, self);
+        palloc.free(meta_pagetable_paddr, self);
+    }
+
+    /// Copies the contents of `vaddr` to another physical page, and maps the new physical page to
+    /// the old virtual address. The old page is not deallocated.
+    pub fn move_page(
+        &mut self,
+        palloc: &mut PhysAllocator,
+        vaddr: usize,
+        dest_paddr: usize,
+        flags: MappingFlags,
+    ) {
+        // Preallocate the pagetable if necessary as the pagetable could itself be COW, and we
+        // don't want 'do_copy' to be called recursively so that we don't have two pages on the
+        // stack at once
+        self.map_ensure_pagetable(palloc, vaddr);
+
+        // Copy the old page to a temporary buffer, map the new page and copy the contents
+        // into the new page.
+        //
+        // NOTE: Do this in a separate stack frame.
+        #[inline(never)]
+        unsafe fn do_copy(
+            mapper: &mut MemoryMapper,
+            vaddr: usize,
+            dest_paddr: usize,
+            flags: MappingFlags,
+        ) {
+            let mut contents: [MaybeUninit<u8>; mmu::PAGE_SIZE] =
+                MaybeUninit::uninit().assume_init();
+            let contents_ptr = contents.as_mut_ptr() as *mut u8;
+            core::ptr::copy(vaddr as *const u8, contents_ptr, mmu::PAGE_SIZE);
+
+            // Map a new physical page
+            mapper.map_no_alloc(dest_paddr, vaddr, flags);
+
+            // Copy the contents of the old page to the new page
+            core::ptr::copy(contents_ptr, vaddr as *mut u8, mmu::PAGE_SIZE);
+        }
+        unsafe {
+            do_copy(self, vaddr, dest_paddr, flags);
+        }
+    }
+
     /// If copy-on-write is enabled for 'vaddr', copies to a new page (in order to ensure 'vaddr'
     /// is writable). Returns true if a page was copied, or false if no copy was needed (or the
     /// page was not marked copy-on-write).
@@ -288,34 +491,8 @@ impl MemoryMapper {
                 // First, allocate a new physical page to store the result.
                 let dest_paddr = palloc.alloc().expect("not enough memory for copy-on-write");
 
-                // Also preallocate the pagetable if necessary as the pagetable could itself be COW
-                self.map_ensure_pagetable(palloc, vaddr);
-
-                // Copy the old page to a temporary buffer, map the new page and copy the contents
-                // into the new page.
-                //
-                // NOTE: Do this in a separate stack frame.
-                #[inline(never)]
-                unsafe fn do_copy(
-                    mapper: &mut MemoryMapper,
-                    vaddr: usize,
-                    dest_paddr: usize,
-                    flags: MappingFlags,
-                ) {
-                    let mut contents: [MaybeUninit<u8>; mmu::PAGE_SIZE] =
-                        MaybeUninit::uninit().assume_init();
-                    let contents_ptr = contents.as_mut_ptr() as *mut u8;
-                    core::ptr::copy(vaddr as *const u8, contents_ptr, mmu::PAGE_SIZE);
-
-                    // Map a new physical page
-                    mapper.map_no_alloc(dest_paddr, vaddr, flags);
-
-                    // Copy the contents of the old page to the new page
-                    core::ptr::copy(contents_ptr, vaddr as *mut u8, mmu::PAGE_SIZE);
-                }
-
-                do_copy(
-                    self,
+                self.move_page(
+                    palloc,
                     vaddr,
                     dest_paddr,
                     self.mapping_to_flags(mapping).with_writable(true),
@@ -421,7 +598,7 @@ impl MemoryMapper {
             vaddr += mmu::PAGE_SIZE;
         }
 
-        asm!("mov cr3, {}", in(reg) page_directory);
+        self.set_cr3(page_directory as usize);
     }
 }
 
@@ -430,13 +607,23 @@ impl core::fmt::Debug for MemoryMapper {
         let mut f = f.debug_map();
 
         let mut printed_prev = true;
-        for vaddr in (0..=usize::MAX).step_by(mmu::PAGE_SIZE) {
-            if let Some(mapping) = self.get_mapping(vaddr) {
-                f.entry(&vaddr, &mapping.physaddr());
-                printed_prev = true;
-            } else if printed_prev {
-                f.entry(&"...", &"unmapped");
-                printed_prev = false;
+        for pde_idx in 0..1024 {
+            unsafe {
+                if !(*(PAGETABLE_BASE as *const pagetables::PageDirectory)).0[pde_idx].is_present()
+                {
+                    printed_prev = false;
+                    continue;
+                }
+            }
+            for pte_idx in 0..1024 {
+                let vaddr = (pde_idx << 22) | (pte_idx << 12);
+                if let Some(mapping) = self.get_mapping(vaddr) {
+                    if !printed_prev {
+                        f.entry(&"...", &"unmapped");
+                    }
+                    printed_prev = true;
+                    f.entry(&vaddr, &mapping.physaddr());
+                }
             }
         }
 
