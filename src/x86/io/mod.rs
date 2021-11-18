@@ -1,6 +1,7 @@
 #![allow(dead_code, clippy::missing_safety_doc)]
 
 pub mod cga;
+pub mod pio;
 pub mod serial;
 
 /// An x86 I/O port (accessed using the 'in' and 'out' instructions).

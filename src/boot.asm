@@ -85,15 +85,15 @@ waitloop1:  // Wait for the drive to be ready
     mov edi, offset KERNEL_PHYS_START   // edi = destination
     mov ebx, 1                          // ebx = sector index
 
-    mov dx, 0x1F2
-    mov ax, bx
-    out dx, al  // read 1 sector at a time
-
     cld
 readloop:
+    // read 1 sector
+    mov dx, 0x1F2
+    mov al, 1
+    out dx, al
     // Set sector index to ebx
     mov eax, ebx
-    mov dx, 0x1F3
+    add dx, 1 // 0x1F3
     out dx, al
     shr eax, 8
     inc dx
