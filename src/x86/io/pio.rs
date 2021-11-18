@@ -127,6 +127,11 @@ impl<const BASE: u16> Pio<BASE> {
 
         self.wait()?;
 
+        if count == 0 {
+            // a count of 0 tells the drive to read 32MB, which is not what we want
+            return Ok(());
+        }
+
         unsafe {
             self.drive_head.write(
                 DriveHead::new()
