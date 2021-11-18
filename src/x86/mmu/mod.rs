@@ -11,6 +11,7 @@ pub const KERNEL_RELOC_BASE: usize = 0xf0000000;
 
 extern "C" {
     pub static KERNEL_VIRT_START: u8;
+    pub static KERNEL_VIRT_END: u8;
 }
 
 pub const PAGE_SHIFT: usize = 12;

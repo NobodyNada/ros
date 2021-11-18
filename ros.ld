@@ -9,9 +9,9 @@ SECTIONS {
         _KERNEL_VIRT_START = .;
         KERNEL_PHYS_START = _KERNEL_VIRT_START - KERNEL_RELOC_BASE;
         *(.text .text.* .rodata .rodata.* .data .data.*)
-        KERNEL_VIRT_END = .;
-        KERNEL_PHYS_END = KERNEL_VIRT_END - KERNEL_RELOC_BASE;
-        KERNEL_SIZE_SECTORS = (KERNEL_VIRT_END-_KERNEL_VIRT_START + 0x1FF) >> 9;
+        _KERNEL_VIRT_END = .;
+        KERNEL_PHYS_END = _KERNEL_VIRT_END - KERNEL_RELOC_BASE;
+        KERNEL_SIZE_SECTORS = (_KERNEL_VIRT_END-_KERNEL_VIRT_START + 0x1FF) >> 9;
 
         /*
          * hack to work around https://github.com/rust-lang/compiler-builtins/issues/333

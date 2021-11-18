@@ -20,6 +20,7 @@ extern crate alloc;
 use core::fmt::Write;
 use x86::io::{cga, serial};
 
+use crate::util::elfloader;
 use crate::x86::mmu;
 
 // Include assembly modules
@@ -74,20 +75,24 @@ fn alloc_error(layout: core::alloc::Layout) -> ! {
 #[no_mangle]
 #[allow(clippy::stable_sort_primitive)]
 pub extern "C" fn main() -> ! {
-    kprintln!("good morning!");
+    kprintln!("good morning, that's a nice tnettenba");
 
     let idt = x86::interrupt::IDT.take_and_leak().unwrap();
     idt.lidt();
     mmu::MMU.take().unwrap().init();
 
-    let mut v = alloc::vec![4, 5, 3, 6, 4, 5, 1];
-    kprintln!("alloced");
-    v.sort();
-    kprintln!("{:?}", v);
+    // find and execute all elves
+    let mut offset = x86::io::pio::SECTOR_SIZE + // bootloader
+                      unsafe { //kernel
+                          core::ptr::addr_of!(mmu::KERNEL_VIRT_END)
+                              .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
+                      };
+    while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
+        kprintln!("Found ELF: {:#08x?}", header);
+        header.load().expect("I/O error");
+        offset = header.start_offset as usize + header.max_offset as usize;
+    }
 
-    let v2 = v.clone();
-    core::mem::drop(v);
-    core::mem::drop(v2);
-
+    kprintln!("Memory mappings: {:#08x?}", mmu::MMU.take().unwrap().mapper);
     halt()
 }
