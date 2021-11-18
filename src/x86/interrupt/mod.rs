@@ -103,10 +103,10 @@ macro_rules! isr_witherr {
                 "push esp",
                 "call {handler}",
 
-                "add esp, 8", // pop return address and EIP
+                "add esp, 12", // pop interrupt frame, return address, and EIP
                 "popad",
-                "add esp, 4", // pop interrupt ID
-                "iret",
+                "add esp, 8", // pop interrupt ID and code
+                "iretd",
                 id = const $id,
                 handler = sym call_handler,
                 options(noreturn)
@@ -138,10 +138,10 @@ macro_rules! isr_noerr {
 
                 "call {handler}",
 
-                "add esp, 8", // pop return address and EIP
+                "add esp, 12", // pop interrupt frame, return address, and EIP
                 "popad"
                 "add esp, 8", // pop interrupt ID & code
-                "iret",
+                "iretd",
                 id = const $id,
                 handler = sym call_handler,
                 options(noreturn)
