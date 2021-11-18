@@ -12,7 +12,7 @@ macro_rules! kprint {
 #[macro_export]
 macro_rules! kprintln {
     ($($arg:tt)*) => (
-        kprint!("{}\n", core::format_args!($($arg)*));
+        $crate::kprint!("{}\n", core::format_args!($($arg)*));
     )
 }
 
