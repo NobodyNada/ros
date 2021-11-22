@@ -38,11 +38,11 @@ kentry:
 relocated:
 
     // Zero the bss segment
-    mov edi, KERNEL_BSS_START
+    mov edi, offset KERNEL_BSS_START
 bss:
     mov dword ptr [edi], 0
     add edi, 4
-    cmp edi, KERNEL_BSS_END
+    cmp edi, offset KERNEL_BSS_END
     jl bss
 
     // Set up the stack
