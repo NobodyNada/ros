@@ -24,17 +24,17 @@ pub fn sti() {
 pub static IDT: Global<InterruptDescriptorTable> = Global::lazy_default();
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct InterruptFrame {
-    // Pushed by ISR
-    // Copy of return address and frame pointer so backtraces work
-    pub _ebp: usize,
-    pub _eip: usize,
+    pub ds: usize,
+    pub es: usize,
+    pub fs: usize,
+    pub gs: usize,
 
     pub edi: usize,
     pub esi: usize,
     pub ebp: usize,
-    _esp: usize,
+    pub _esp: usize,
     pub ebx: usize,
     pub edx: usize,
     pub ecx: usize,
@@ -83,32 +83,56 @@ impl InterruptGate {
 #[macro_export]
 macro_rules! isr_witherr {
     ($id:expr, $handler:expr) => {{
-        unsafe extern "C" fn call_handler(frame: &mut InterruptFrame) {
-            frame._ebp = frame.ebp;
-            frame._eip = frame.eip;
-            $handler(frame);
-        }
-
         #[naked]
         unsafe extern "x86-interrupt" fn isr() {
             asm!(
                 "push dword ptr {id}",
                 "pushad",
 
+                "mov ax, gs",
+                "push eax",
+                "mov ax, fs",
+                "push eax",
+                "mov ax, es",
+                "push eax",
+                "mov ax, ds",
+                "push eax",
+
+                "mov ax, {kdata}",
+                "mov ds, ax",
+                "mov es, ax",
+                "mov fs, ax",
+                "mov gs, ax",
+
+                "mov eax, esp", // save pointer to interrupt frame
+
                 // push the return address & EBP again, so that backtraces will work through interrupts
-                "sub esp, 8", // just reserve space, call_handler will write the correct values
+                "push [eax+{eip}]",
+                "push [eax+{ebp}]",
                 "mov ebp, esp",
 
-                // call the handler with the frame as an argument
-                "push esp",
+                "push eax",     // pass the interrupt frame as an argument to the handler
                 "call {handler}",
 
-                "add esp, 12", // pop interrupt frame, return address, and EIP
+                "add esp, 12", // pop interrupt frame argument, return address, and EIP
+
+                "pop eax",
+                "mov ds, ax",
+                "pop eax",
+                "mov es, ax",
+                "pop eax",
+                "mov fs, ax",
+                "pop eax",
+                "mov gs, ax",
+
                 "popad",
                 "add esp, 8", // pop interrupt ID and code
                 "iretd",
                 id = const $id,
-                handler = sym call_handler,
+                kdata = const (crate::x86::mmu::SegmentId::KernelData as u16),
+                eip = const 0x38, // offsetof(TrapFrame.eip)
+                ebp = const 0x18, // offsetof(TrapFrame.ebp)
+                handler = sym $handler,
                 options(noreturn)
             );
         }
@@ -119,12 +143,6 @@ macro_rules! isr_witherr {
 #[macro_export]
 macro_rules! isr_noerr {
     ($id:expr, $handler:expr) => {{
-        unsafe extern fn call_handler(frame: InterruptFrame) {
-            frame._ebp = frame.epb;
-            frame._eip = frame.eip;
-            $handler(frame);
-        }
-
         #[naked]
         unsafe extern "x86-interrupt" fn isr() {
             asm!(
@@ -132,18 +150,50 @@ macro_rules! isr_noerr {
                 "push dword ptr {id}",
                 "pushad",
 
+                "mov ax, gs",
+                "push eax",
+                "mov ax, fs",
+                "push eax",
+                "mov ax, es",
+                "push eax",
+                "mov ax, ds",
+                "push eax",
+
+                "mov ax, {kdata}",
+                "mov ds, ax",
+                "mov es, ax",
+                "mov fs, ax",
+                "mov gs, ax",
+
+                "mov eax, esp", // save pointer to interrupt frame
+
                 // push the return address & EBP again, so that backtraces will work through interrupts
-                "sub esp, 8", // just reserve space, call_handler will write the correct values
+                "push [eax+{eip}]",
+                "push [eax+{ebp}]",
                 "mov ebp, esp",
 
+                "push eax",     // pass the interrupt frame as an argument to the handler
                 "call {handler}",
 
-                "add esp, 12", // pop interrupt frame, return address, and EIP
+                "add esp, 12", // pop interrupt frame argument, return address, and EIP
+
+                "pop eax",
+                "mov ds, ax",
+                "pop eax",
+                "mov es, ax",
+                "pop eax",
+                "mov fs, ax",
+                "pop eax",
+                "mov gs, ax",
+
                 "popad"
                 "add esp, 8", // pop interrupt ID & code
                 "iretd",
                 id = const $id,
-                handler = sym call_handler,
+                kdata = const (crate::x86::mmu::SegmentId::KernelData as u16),
+                eip = const 0x38, // offsetof(TrapFrame.eip)
+                ebp = const 0x18, // offsetof(TrapFrame.ebp)
+                handler = sym $handler,
                 options(noreturn)
             );
         }
