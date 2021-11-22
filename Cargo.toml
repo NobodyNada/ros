@@ -5,4 +5,5 @@ edition = "2018"
 default-run = "ros"
 
 [dependencies]
+hashbrown = { version = "0.11.2", features = ["ahash-compile-time-rng"] }
 modular-bitfield = "0.11.2"

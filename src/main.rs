@@ -31,6 +31,7 @@ global_asm!(include_str!("kentry.asm"));
 pub mod debug;
 pub mod heap;
 pub mod prelude;
+pub mod scheduler;
 pub mod util;
 pub mod x86;
 
@@ -87,21 +88,75 @@ pub extern "C" fn main() -> ! {
                           core::ptr::addr_of!(mmu::KERNEL_VIRT_END)
                               .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
                       };
-    let mut is_first = true;
+    let mut scheduler: Option<scheduler::Scheduler> = None;
     while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
-        if is_first {
-            is_first = false;
-        } else {
-            // Create a new MMU environment.
+        let cr3 = {
             let mut mmu = mmu::MMU.take().unwrap();
             let mmu = &mut *mmu;
-            mmu.mapper.fork(&mut mmu.allocator);
-        }
+
+            match scheduler {
+                None => {
+                    // This is the first process, use the current MMU environment.
+                    mmu.mapper.cr3()
+                }
+                Some(_) => mmu.mapper.fork(&mut mmu.allocator),
+            }
+        };
+
         kprintln!("Found ELF: {:#08x?}", header);
         header.load().expect("I/O error");
         offset = header.start_offset as usize + header.max_offset as usize;
-        kprintln!("Memory mappings: {:#08x?}", mmu::MMU.take().unwrap().mapper);
+
+        // allocate a 32-KiB user stack
+        let user_stack_top = {
+            let mut mmu = mmu::MMU.take().unwrap();
+            let mmu = &mut *mmu;
+
+            let user_stack_bytes = 0x8000;
+            let user_stack_pages = user_stack_bytes >> mmu::PAGE_SHIFT;
+            let user_stack = mmu
+                .mapper
+                .find_unused_userspace(user_stack_pages)
+                .expect("not enough address space for user stack");
+            mmu.mapper.map_zeroed(
+                &mut mmu.allocator,
+                user_stack,
+                user_stack_pages,
+                mmu::mmap::MappingFlags::new()
+                    .with_writable(true)
+                    .with_user_accessible(true),
+            );
+            kprintln!("user stack at {:#08x?}", user_stack);
+
+            kprintln!("Memory mappings: {:#08x?}", mmu.mapper);
+
+            user_stack + (user_stack_bytes - 1)
+        };
+
+        let env = x86::env::Env {
+            cr3,
+            trap_frame: x86::interrupt::InterruptFrame {
+                eip: header.entrypoint,
+                cs: mmu::SegmentId::UserCode as usize,
+                ds: mmu::SegmentId::UserData as usize,
+                es: mmu::SegmentId::UserData as usize,
+                fs: mmu::SegmentId::UserData as usize,
+                gs: mmu::SegmentId::UserData as usize,
+                user_ss: mmu::SegmentId::UserData as usize,
+                user_esp: user_stack_top,
+                ..Default::default()
+            },
+        };
+
+        // Add the process to the scheduler.
+        match scheduler.as_mut() {
+            None => scheduler = Some(scheduler::Scheduler::new(env)),
+            Some(scheduler) => {
+                scheduler.add_process(env);
+            }
+        };
     }
 
-    halt()
+    kprintln!("entering userland!");
+    scheduler.expect("no processes found").run()
 }

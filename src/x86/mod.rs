@@ -1,3 +1,4 @@
+pub mod env;
 pub mod interrupt;
 pub mod io;
 pub mod mmu;
