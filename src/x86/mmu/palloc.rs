@@ -142,7 +142,7 @@ impl PhysAllocator {
         let paddr = mapping.physaddr() as usize;
         let info = self.get_page_info_mut(paddr, mapper).as_mut().unwrap();
         assert!(
-            info.allocated.refcount() == 0,
+            info.allocated.copy_on_write() || info.allocated.refcount() == 0,
             "cannot mark a shared page as copy-on-write"
         );
 
