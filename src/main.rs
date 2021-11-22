@@ -61,7 +61,9 @@ unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     write_panic_message(format_args!("\n\npanic: {}\n", info));
 
     write_panic_message(format_args!("Stack trace:"));
-    debug::backtrace(|frame| write_panic_message(format_args!(" {:#08x}", frame)));
+    if debug::backtrace(|frame| write_panic_message(format_args!(" {:#08x}", frame))).is_some() {
+        write_panic_message(format_args!(" <page fault>"));
+    }
     write_panic_message(format_args!("\n"));
 
     halt()
