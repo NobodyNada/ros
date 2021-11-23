@@ -1,11 +1,12 @@
-use crate::isr_witherr;
+use crate::syscall;
 use crate::x86::{
     interrupt::{HwInterruptNum, Interrupt, InterruptDescriptorTable, InterruptFrame},
     mmu,
 };
+use crate::{isr_noerr, isr_witherr};
 
 pub fn default() -> InterruptDescriptorTable {
-    InterruptDescriptorTable {
+    let mut idt = InterruptDescriptorTable {
         divide_error: Interrupt::undefined(),
         debug_exception: Interrupt::undefined(),
         nmi: Interrupt::undefined(),
@@ -39,7 +40,13 @@ pub fn default() -> InterruptDescriptorTable {
         control_protection_exception: Interrupt::undefined(),
         _reserved2: [Interrupt::undefined(); 10],
         user: [Interrupt::undefined(); 224],
-    }
+    };
+
+    idt.user[0] = Interrupt::sw_trap(isr_noerr!(0x20, syscall::exit));
+    idt.user[1] = Interrupt::sw_trap(isr_noerr!(0x21, syscall::yield_cpu));
+    idt.user[2] = Interrupt::sw_trap(isr_noerr!(0x22, syscall::puts));
+
+    idt
 }
 
 fn general_protection_fault(frame: &mut InterruptFrame) {

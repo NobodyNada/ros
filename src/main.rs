@@ -32,6 +32,7 @@ pub mod debug;
 pub mod heap;
 pub mod prelude;
 pub mod scheduler;
+pub mod syscall;
 pub mod util;
 pub mod x86;
 

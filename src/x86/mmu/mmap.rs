@@ -278,6 +278,43 @@ impl MemoryMapper {
         self.get_mapping(vaddr).map(|m| self.mapping_to_flags(m))
     }
 
+    /// Verifies that the given address range exists and is accessible under the given access type.
+    /// Useful for validating buffers passed in from userspace.
+    pub fn validate_range(
+        &self,
+        palloc: &PhysAllocator,
+        mut vaddr: usize,
+        mut size: usize,
+        flags: MappingFlags,
+    ) -> bool {
+        if size != 0 && vaddr > size.wrapping_neg() {
+            // overflow
+            return false;
+        }
+        while size > 0 {
+            if let Some(mapping) = self.get_mapping(vaddr) {
+                if flags.user_accessible() && !mapping.userspace_accessible() {
+                    // insufficient permissions
+                    return false;
+                }
+                if flags.writable()
+                    && !(mapping.userspace_accessible() || self.is_cow(palloc, vaddr))
+                {
+                    // attempt to write to read-only page
+                    return false;
+                }
+            } else {
+                // page is not mapped
+                return false;
+            }
+
+            size = size.saturating_sub(mmu::PAGE_SIZE);
+            vaddr += mmu::PAGE_SIZE;
+        }
+
+        true
+    }
+
     /// Creates a set of mappings for a new process.
     /// Kernelspace is shared, while userspace is marked as copy-on-write.
     ///
@@ -460,6 +497,22 @@ impl MemoryMapper {
         }
         unsafe {
             do_copy(self, vaddr, dest_paddr, flags);
+        }
+    }
+
+    /// Returns true if the given page is mapped as copy-on-write.
+    pub fn is_cow(&self, palloc: &PhysAllocator, vaddr: usize) -> bool {
+        let vaddr = mmu::page_align_down(vaddr);
+        let mapping = self.get_mapping(vaddr).expect("vaddr is unmapped");
+        let src_paddr = mapping.physaddr() as usize;
+
+        // Special case: the zero page is always copy-on-write
+        let zero_page_paddr =
+            core::ptr::addr_of!(ZERO_PAGE) as usize & !(mmu::KERNEL_RELOC_BASE as usize);
+        let is_zero_page = src_paddr == zero_page_paddr;
+        unsafe {
+            let info = (*palloc.get_page_info(src_paddr)).allocated;
+            is_zero_page || info.copy_on_write()
         }
     }
 
