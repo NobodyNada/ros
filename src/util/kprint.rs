@@ -5,14 +5,14 @@ use crate::x86::io::{cga, serial};
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => (
-        $crate::util::kprint::_kprint(core::format_args!($($arg)*));
+        $crate::util::kprint::_kprint(core::format_args!($($arg)*))
     )
 }
 
 #[macro_export]
 macro_rules! kprintln {
     ($($arg:tt)*) => (
-        $crate::kprint!("{}\n", core::format_args!($($arg)*));
+        $crate::kprint!("{}\n", core::format_args!($($arg)*))
     )
 }
 
