@@ -135,7 +135,7 @@ impl Scheduler {
         self.next_pid += 1;
 
         self.processes.insert(
-            self.next_pid,
+            new_pid,
             Process {
                 env,
                 next_runnable: self.first_runnable,
