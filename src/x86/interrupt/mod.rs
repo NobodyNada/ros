@@ -309,7 +309,11 @@ impl Default for InterruptDescriptorTable {
 impl InterruptDescriptorTable {
     /// Loads an interrupt descriptor table.
     pub fn lidt(&'static self) {
-        x86::DescriptorTableRegister::new(256 - 1, (self as *const _) as usize).lidt();
+        x86::DescriptorTableRegister::new(
+            (core::mem::size_of_val(self) - 1) as u16,
+            (self as *const _) as usize,
+        )
+        .lidt();
     }
 }
 
