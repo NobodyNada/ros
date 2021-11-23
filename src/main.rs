@@ -129,9 +129,6 @@ pub extern "C" fn main() -> ! {
                     .with_writable(true)
                     .with_user_accessible(true),
             );
-            kprintln!("user stack at {:#08x?}", user_stack);
-
-            kprintln!("Memory mappings: {:#08x?}", mmu.mapper);
 
             user_stack + (user_stack_bytes - 1)
         };

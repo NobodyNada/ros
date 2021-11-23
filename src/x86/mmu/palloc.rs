@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 use core::num::NonZeroUsize;
 
-use crate::{prelude::*, x86::mmu};
+use crate::x86::mmu;
 use modular_bitfield::prelude::*;
 
 use super::mmap::MemoryMapper;
@@ -234,9 +234,6 @@ impl BumpAllocator {
         let memory_map = core::slice::from_raw_parts_mut(memory_map_ptr, map_count);
         // Sort the memory map in place
         memory_map.sort_unstable_by_key(|r| r.start);
-
-        kprintln!("Physical memory map:");
-        kprintln!("{:#08x?}", memory_map);
 
         let mut result = Self {
             next_addr: None,

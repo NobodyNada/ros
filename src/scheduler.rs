@@ -122,7 +122,7 @@ impl Scheduler {
 
             self.next_runnable = process.next_runnable.or(self.first_runnable);
         } else {
-            todo!("no runnable processes, implement an idle task");
+            panic!("no runnable processes");
         }
     }
 
