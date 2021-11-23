@@ -21,3 +21,8 @@ To run usermode applications, specify the name of the application (or a path to 
     cargo run --release -- helloworld
 
 Note that `cargo run` does not currently automatically compile applications, so be sure to `cargo build` first.
+
+Therefore, **the recommended flow for testing lab3 is**:
+
+    cargo build --release                                   # build kernel & all user applications
+    cargo run --release -- -n helloworld pagefault count    # run kernel with some test apps
