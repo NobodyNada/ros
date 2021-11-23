@@ -2,6 +2,7 @@
 use core::ops::DerefMut;
 
 use crate::{
+    kprintln,
     util::Global,
     x86::{interrupt, mmu},
 };
@@ -134,6 +135,19 @@ pub extern "C" fn page_fault(frame: &mut interrupt::InterruptFrame) {
     };
 
     if !handled {
-        unhandled("Unhandled pagefault");
+        if frame.is_userspace() {
+            // Kill the offending process
+            let mut scheduler = crate::scheduler::SCHEDULER.take().unwrap();
+            let scheduler = scheduler.as_mut().unwrap();
+
+            kprintln!(
+                "terminating process {} due to unhandled pagefault",
+                scheduler.current_pid()
+            );
+
+            scheduler.kill_current_process(frame);
+        } else {
+            unhandled("Unhandled pagefault");
+        }
     }
 }

@@ -169,4 +169,10 @@ impl Scheduler {
 
         process.env
     }
+
+    pub fn kill_current_process(&mut self, trap_frame: &mut x86::interrupt::InterruptFrame) -> Env {
+        let env = self.remove_process(self.current_pid());
+        self.load_next_process(trap_frame);
+        env
+    }
 }

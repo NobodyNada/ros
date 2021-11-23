@@ -51,6 +51,12 @@ pub struct InterruptFrame {
     pub user_ss: usize,
 }
 
+impl InterruptFrame {
+    pub fn is_userspace(&self) -> bool {
+        (self.cs & 3) != 0
+    }
+}
+
 #[bitfield]
 #[repr(u64, align(8))]
 #[derive(Copy, Clone)]
