@@ -186,7 +186,7 @@ macro_rules! isr_noerr {
                 "pop eax",
                 "mov gs, ax",
 
-                "popad"
+                "popad",
                 "add esp, 8", // pop interrupt ID & code
                 "iretd",
                 id = const $id,
