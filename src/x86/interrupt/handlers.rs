@@ -42,9 +42,7 @@ pub fn default() -> InterruptDescriptorTable {
         user: [Interrupt::undefined(); 224],
     };
 
-    idt.user[0] = Interrupt::sw_trap(isr_noerr!(0x20, syscall::exit));
-    idt.user[1] = Interrupt::sw_trap(isr_noerr!(0x21, syscall::yield_cpu));
-    idt.user[2] = Interrupt::sw_trap(isr_noerr!(0x22, syscall::puts));
+    idt.user[0] = Interrupt::sw_trap(isr_noerr!(0x20, syscall::syscall));
 
     idt
 }

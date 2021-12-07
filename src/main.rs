@@ -14,6 +14,7 @@
 //     (used for e.g. generating pagetables and I/O port definitions at compile time)
 #![feature(const_generics_defaults, const_fn_trait_bound, const_fn_fn_ptr_basics)]
 #![feature(allocator_api, alloc_error_handler)]
+#![feature(layout_for_ptr, slice_ptr_get, slice_ptr_len)]
 
 extern crate alloc;
 
@@ -32,9 +33,18 @@ pub mod debug;
 pub mod heap;
 pub mod prelude;
 pub mod scheduler;
-pub mod syscall;
 pub mod util;
 pub mod x86;
+
+// export syscall_common and syscall_kernel as syscall
+mod syscall_common;
+mod syscall_kernel;
+pub mod syscall {
+    //! The syscall module is defined in two files: syscall_common.rs and syscall_kernel.rs. Common
+    //! contains data structures and definitions used by both userspace and kernelspace, whereas
+    //! Kernel contains only those used by kernelspace.
+    pub use super::{syscall_common::*, syscall_kernel::*};
+}
 
 /// Loops forever.
 #[allow(clippy::empty_loop)]

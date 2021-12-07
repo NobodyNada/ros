@@ -1,5 +1,6 @@
 #![no_std]
+use ros::syscall;
 
 fn main() {
-    ros::puts("Hello, world!");
+    syscall::puts("Hello, world!");
 }
