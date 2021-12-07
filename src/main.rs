@@ -1,3 +1,9 @@
+//! Crate definition and Rust entrypoint for ROS kernel.
+//!
+//! This file defines the module structure and language configuration for the ROS kernel binary. It
+//! also contains the panic handler and the boot entrypoint.
+
+// Configure language features as needed
 // Don't include the Rust standard library (which requires a libc & syscalls)
 // Instead, we'll use the 'core' minimal standard library: https://doc.rust-lang.org/core/index.html
 #![no_std]
@@ -13,16 +19,14 @@
 //   Some compile-time-constant computation features
 //     (used for e.g. generating pagetables and I/O port definitions at compile time)
 #![feature(const_generics_defaults, const_fn_trait_bound, const_fn_fn_ptr_basics)]
+//   APIs for defining custom memory allocators
 #![feature(allocator_api, alloc_error_handler)]
+//   APIs for low-level manipulation of Rust objects, used to implement syscalls
 #![feature(layout_for_ptr, slice_ptr_get, slice_ptr_len)]
 
+// Link against the 'alloc' crate, which defines
+// standard library data structures and collection
 extern crate alloc;
-
-use core::fmt::Write;
-use x86::io::{cga, serial};
-
-use crate::util::elfloader;
-use crate::x86::mmu;
 
 // Include assembly modules
 global_asm!(include_str!("boot.asm"));
@@ -46,7 +50,13 @@ pub mod syscall {
     pub use super::{syscall_common::*, syscall_kernel::*};
 }
 
-/// Loops forever.
+use core::fmt::Write;
+use x86::io::{cga, serial};
+
+use crate::util::elfloader;
+use crate::x86::mmu;
+
+/// Halts the CPU by disabling interrupts and looping forever.
 #[allow(clippy::empty_loop)]
 #[no_mangle]
 pub extern "C" fn halt() -> ! {
@@ -54,9 +64,9 @@ pub extern "C" fn halt() -> ! {
     loop {}
 }
 
+/// Called if our code `panic!`'s -- for instance, if an assertion or bounds-check fails.
 #[panic_handler]
 unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
-    // Called if our code `panic!`'s -- for instance, if an assertion or bounds-check fails.
     x86::interrupt::cli();
 
     // Forcibly reset the serial port (even if someone else was using it)
@@ -80,6 +90,7 @@ unsafe fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     halt()
 }
 
+/// Called if dynamic memory allocation fails.
 #[alloc_error_handler]
 fn alloc_error(layout: core::alloc::Layout) -> ! {
     panic!("allocation failed: {:#08x?}", layout)
@@ -91,11 +102,13 @@ fn alloc_error(layout: core::alloc::Layout) -> ! {
 pub extern "C" fn main() -> ! {
     kprintln!("good morning, that's a nice tnettenba");
 
+    // Initialize interrupts and MMU
     let idt = x86::interrupt::IDT.take_and_leak().unwrap();
     idt.lidt();
     mmu::MMU.take().unwrap().init();
 
-    // find and execute all elves
+    // Find and execute all elves
+    // Look past the end of the kernel binary on disk for additional elves
     let mut offset = x86::io::pio::SECTOR_SIZE + // bootloader
                       unsafe { //kernel
                           core::ptr::addr_of!(mmu::KERNEL_VIRT_END)
@@ -103,6 +116,7 @@ pub extern "C" fn main() -> ! {
                       };
     let mut scheduler: Option<scheduler::Scheduler> = None;
     while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
+        // We've got an ELF header. Make an MMU environment for it
         let cr3 = {
             let mut mmu = mmu::MMU.take().unwrap();
             let mmu = &mut *mmu;
@@ -117,6 +131,7 @@ pub extern "C" fn main() -> ! {
         };
 
         kprintln!("Found ELF: {:#08x?}", header);
+        // Load the ELF into memory
         header.load().expect("I/O error");
         offset = header.start_offset as usize + header.max_offset as usize;
 
@@ -143,6 +158,7 @@ pub extern "C" fn main() -> ! {
             user_stack + (user_stack_bytes - 1)
         };
 
+        // Add the process to the scheduler.
         let env = x86::env::Env {
             cr3,
             trap_frame: x86::interrupt::InterruptFrame {
@@ -158,7 +174,6 @@ pub extern "C" fn main() -> ! {
             },
         };
 
-        // Add the process to the scheduler.
         match scheduler.as_mut() {
             None => scheduler = Some(scheduler::Scheduler::new(env)),
             Some(scheduler) => {

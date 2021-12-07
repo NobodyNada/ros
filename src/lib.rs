@@ -1,3 +1,7 @@
+//! ROS userland runtime library
+//!
+//! Defines data structures and functions ROS programs can use to communicate with the kernel.
+
 #![no_std]
 #![feature(asm)]
 #![feature(lang_items)]
@@ -12,12 +16,14 @@ pub mod syscall {
     pub use super::{syscall_common::*, syscall_user::*};
 }
 
+/// Userland panic handler
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     syscall::puts("user panicked\n");
     syscall::exit()
 }
 
+/// Rust runtime entry point, equivalent to the '_start' function on a Unix-like operating system
 #[lang = "start"]
 fn lang_start<T>(main: fn() -> T, _argc: isize, _argv: *const *const u8) -> isize {
     main();
