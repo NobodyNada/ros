@@ -155,7 +155,7 @@ pub extern "C" fn main() -> ! {
                     .with_user_accessible(true),
             );
 
-            user_stack + (user_stack_bytes - 1)
+            user_stack + user_stack_bytes
         };
 
         // Add the process to the scheduler.
