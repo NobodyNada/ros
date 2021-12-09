@@ -67,7 +67,7 @@ pub(super) const PAGETABLE_BASE: usize = 0xffc00000;
 
 // A physical page which is always zeroed.
 static ZERO_PAGE: mmu::PageAligned<[u8; mmu::PAGE_SIZE]> = mmu::PageAligned([0; mmu::PAGE_SIZE]);
-fn zero_page_paddr() -> usize {
+pub fn zero_page_paddr() -> usize {
     core::ptr::addr_of!(ZERO_PAGE) as usize & !(mmu::KERNEL_RELOC_BASE as usize)
 }
 

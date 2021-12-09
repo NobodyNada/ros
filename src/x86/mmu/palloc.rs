@@ -122,6 +122,10 @@ impl PhysAllocator {
     ///
     /// The caller is responsible for ensuring the page was allocated.
     pub unsafe fn share(&mut self, paddr: usize, mapper: &mut MemoryMapper) {
+        if paddr == super::mmap::zero_page_paddr() {
+            // The zero page is protected and does not need to be shared.
+            return;
+        }
         let paddr = mmu::page_align_down(paddr);
         let info = self.get_page_info_mut(paddr, mapper).as_mut().unwrap();
         info.allocated.set_refcount(info.allocated.refcount() + 1);
@@ -140,6 +144,10 @@ impl PhysAllocator {
         let mapping = mapper.get_mapping(vaddr).expect("page is not mapped");
 
         let paddr = mapping.physaddr() as usize;
+        if paddr == super::mmap::zero_page_paddr() {
+            // The zero page is protected and does not need to be shared.
+            return;
+        }
         let info = self.get_page_info_mut(paddr, mapper).as_mut().unwrap();
         assert!(
             info.allocated.copy_on_write() || info.allocated.refcount() == 0,
@@ -165,6 +173,10 @@ impl PhysAllocator {
     ///
     /// The caller is responsible for ensuring the page was in fact allocated.
     pub unsafe fn free(&mut self, paddr: usize, mapper: &mut MemoryMapper) {
+        if paddr == super::mmap::zero_page_paddr() {
+            // The zero page is protected and can never be freed.
+            return;
+        }
         assert!(
             paddr >= core::ptr::addr_of!(PHYSALLOC_START) as usize,
             "free: paddr {:#08x} < PHYSALLOC_START",
