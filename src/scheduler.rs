@@ -1,15 +1,19 @@
 use crate::{
+    fd,
+    syscall::Fd,
     util::Global,
     x86::{self, env::Env},
 };
+use alloc::rc::Rc;
+use core::cell::RefCell;
 use hashbrown::HashMap;
 
 pub type Pid = u32;
 
 pub struct Scheduler {
     processes: HashMap<Pid, Process>,
-    first_runnable: Option<Pid>,
-    next_runnable: Option<Pid>,
+    first: Option<Pid>,
+    next: Option<Pid>,
     current_process: Pid,
     next_pid: Pid,
 }
@@ -18,8 +22,9 @@ pub static SCHEDULER: Global<Option<Scheduler>> = Global::new(None);
 
 struct Process {
     env: Env,
-    next_runnable: Option<Pid>,
-    prev_runnable: Option<Pid>,
+    next: Option<Pid>,
+    prev: Option<Pid>,
+    fdtable: HashMap<Fd, Rc<RefCell<dyn fd::File>>>,
 }
 
 impl Scheduler {
@@ -29,15 +34,16 @@ impl Scheduler {
             1,
             Process {
                 env: init_process,
-                next_runnable: None,
-                prev_runnable: None,
+                next: None,
+                prev: None,
+                fdtable: HashMap::new(),
             },
         );
 
         Scheduler {
             processes,
-            first_runnable: Some(1),
-            next_runnable: Some(1),
+            first: Some(1),
+            next: Some(1),
             current_process: 1,
             next_pid: 2,
         }
@@ -108,7 +114,7 @@ impl Scheduler {
     }
 
     fn load_next_process(&mut self, trap_frame: &mut x86::interrupt::InterruptFrame) {
-        if let Some(pid) = self.next_runnable {
+        if let Some(pid) = self.next {
             self.current_process = pid;
             let process = &self.processes[&pid];
             unsafe {
@@ -120,7 +126,7 @@ impl Scheduler {
             }
             trap_frame.clone_from(&process.env.trap_frame);
 
-            self.next_runnable = process.next_runnable.or(self.first_runnable);
+            self.next = process.next.or(self.first);
         } else {
             panic!("no runnable processes");
         }
@@ -138,15 +144,16 @@ impl Scheduler {
             new_pid,
             Process {
                 env,
-                next_runnable: self.first_runnable,
-                prev_runnable: None,
+                next: self.first,
+                prev: None,
+                fdtable: HashMap::new(),
             },
         );
 
-        if let Some(process) = self.first_runnable {
-            self.processes.get_mut(&process).unwrap().prev_runnable = Some(new_pid);
+        if let Some(process) = self.first {
+            self.processes.get_mut(&process).unwrap().prev = Some(new_pid);
         }
-        self.first_runnable = Some(new_pid);
+        self.first = Some(new_pid);
 
         new_pid
     }
@@ -154,17 +161,17 @@ impl Scheduler {
     pub fn remove_process(&mut self, pid: Pid) -> Env {
         let process = self.processes.remove(&pid).unwrap();
 
-        if self.first_runnable == Some(pid) {
-            self.first_runnable = process.next_runnable;
+        if self.first == Some(pid) {
+            self.first = process.next;
         }
-        if self.next_runnable == Some(pid) {
-            self.next_runnable = process.next_runnable.or(self.first_runnable);
+        if self.next == Some(pid) {
+            self.next = process.next.or(self.first);
         }
-        if let Some(next) = process.next_runnable {
-            self.processes.get_mut(&next).unwrap().prev_runnable = process.prev_runnable
+        if let Some(next) = process.next {
+            self.processes.get_mut(&next).unwrap().prev = process.prev
         }
-        if let Some(prev) = process.prev_runnable {
-            self.processes.get_mut(&prev).unwrap().next_runnable = process.next_runnable
+        if let Some(prev) = process.prev {
+            self.processes.get_mut(&prev).unwrap().next = process.next
         }
 
         process.env
@@ -174,5 +181,19 @@ impl Scheduler {
         let env = self.remove_process(self.current_pid());
         self.load_next_process(trap_frame);
         env
+    }
+
+    pub fn get_fd(&self, pid: Pid, fd: Fd) -> Option<&Rc<RefCell<dyn fd::File>>> {
+        self.processes
+            .get(&pid)
+            .and_then(|process| process.fdtable.get(&fd))
+    }
+
+    pub fn set_fd(&mut self, pid: Pid, fd: Fd, file: Rc<RefCell<dyn fd::File>>) {
+        self.processes
+            .get_mut(&pid)
+            .expect("invalid process")
+            .fdtable
+            .insert(fd, file);
     }
 }

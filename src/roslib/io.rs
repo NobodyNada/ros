@@ -1,0 +1,88 @@
+use crate::syscall;
+use core::fmt::{self, Write};
+
+pub type Fd = u32;
+
+#[derive(Clone)]
+pub struct File {
+    pub fd: Fd,
+}
+
+pub fn stdin() -> File {
+    File { fd: 0 }
+}
+pub fn stdout() -> File {
+    File { fd: 1 }
+}
+pub fn stderr() -> File {
+    File { fd: 2 }
+}
+
+impl File {
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, syscall::ReadError> {
+        syscall::read(self.fd, buf)
+    }
+
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, syscall::WriteError> {
+        syscall::write(self.fd, buf)
+    }
+}
+
+impl Write for File {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let mut buf = s.as_bytes();
+        while !buf.is_empty() {
+            let bytes_written = self.write(buf).map_err(|_| fmt::Error)?;
+            buf = &buf[bytes_written..];
+        }
+        Ok(())
+    }
+}
+
+#[doc(hidden)]
+pub fn _fprint(file: &mut File, format: fmt::Arguments) -> fmt::Result {
+    file.write_fmt(format)
+}
+
+#[macro_export]
+macro_rules! fprint {
+    ($file:expr, $($arg:tt)*) => (
+        $crate::io::_fprint($file, core::format_args!($($arg)*))
+    )
+}
+#[macro_export]
+macro_rules! fprintln {
+    ($file: expr, $($arg:tt)*) => (
+        $crate::fprint!($file, "{}\n", core::format_args!($($arg)*))
+    )
+}
+
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => (
+        $crate::fprint!(&mut $crate::io::stdout(), $($arg)*)
+            .expect("I/O error")
+    )
+}
+#[macro_export]
+macro_rules! println {
+    ($($arg:tt)*) => (
+        $crate::fprintln!(&mut $crate::io::stdout(), $($arg)*)
+            .expect("I/O error")
+    )
+}
+
+#[macro_export]
+macro_rules! eprint {
+    ($($arg:tt)*) => (
+        $crate::fprint!(&mut $crate::io::stderr(), $($arg)*)
+            .expect("I/O error")
+    )
+}
+#[macro_export]
+macro_rules! eprintln {
+    ($file:expr, $($arg:tt)*) => (
+        $crate::fprintln!(&mut $crate::io::stderr(), $($arg)*)
+            .expect("I/O error")
+    )
+}

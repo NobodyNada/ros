@@ -11,9 +11,10 @@ use crate::{
 /// Syscall interrupt handler
 pub fn syscall(frame: &mut interrupt::InterruptFrame) {
     // al == syscall number
-    let matched = match_syscall(frame, SyscallId::Exit, |frame, _: &()| exit(frame))
-        || match_syscall(frame, SyscallId::YieldCpu, |frame, _: &()| yield_cpu(frame))
-        || match_syscall(frame, SyscallId::Puts, |frame, s: &&str| puts(frame, *s));
+    let matched = match_syscall(frame, SyscallId::Exit, |frame, _: ()| exit(frame))
+        || match_syscall(frame, SyscallId::YieldCpu, |frame, _: ()| yield_cpu(frame))
+        || match_syscall(frame, SyscallId::Read, read)
+        || match_syscall(frame, SyscallId::Write, write);
 
     // If no syscall matched, panic
     // TODO: kill userspace process instead
@@ -34,14 +35,26 @@ fn yield_cpu(frame: &mut interrupt::InterruptFrame) {
     scheduler.schedule(frame);
 }
 
-fn puts(_frame: &mut interrupt::InterruptFrame, text: &str) {
-    let pid = scheduler::SCHEDULER
-        .take()
-        .unwrap()
-        .as_ref()
-        .unwrap()
-        .current_pid();
-    kprintln!("[{}]: {}", pid, text)
+fn read(_frame: &mut interrupt::InterruptFrame, arg: ReadArg) -> Result<usize, ReadError> {
+    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+    let scheduler = scheduler.as_mut().unwrap();
+
+    if let Some(fd) = scheduler.get_fd(scheduler.current_pid(), arg.fd) {
+        fd.borrow_mut().read(arg.buf)
+    } else {
+        Err(ReadError::BadFd)
+    }
+}
+
+fn write(_frame: &mut interrupt::InterruptFrame, arg: WriteArg) -> Result<usize, WriteError> {
+    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+    let scheduler = scheduler.as_mut().unwrap();
+
+    if let Some(fd) = scheduler.get_fd(scheduler.current_pid(), arg.fd) {
+        fd.borrow_mut().write(arg.buf)
+    } else {
+        Err(WriteError::BadFd)
+    }
 }
 
 /// Defines a type that can be safely passed between kernelspace and userspace.
@@ -120,13 +133,23 @@ impl Arg for &str {
         <&[u8]>::validate(byte_slice) && core::str::from_utf8(*byte_slice).is_ok()
     }
 }
+impl<'a> Arg for ReadArg<'a> {
+    unsafe fn validate(arg: *const Self) -> bool {
+        <&mut [u8]>::validate(core::ptr::addr_of!((*arg).buf))
+    }
+}
+impl<'a> Arg for WriteArg<'a> {
+    unsafe fn validate(arg: *const Self) -> bool {
+        <&[u8]>::validate(core::ptr::addr_of!((*arg).buf))
+    }
+}
 
 /// If the syscall ID passed by the user process in `frame` matches `id`, decodes and validates the
 /// arguments and invokes the syscall handler.
-fn match_syscall<A: Arg, T: Arg>(
+fn match_syscall<A: Arg, T>(
     frame: &mut interrupt::InterruptFrame,
     id: SyscallId,
-    func: fn(&mut interrupt::InterruptFrame, &A) -> T,
+    func: fn(&mut interrupt::InterruptFrame, A) -> T,
 ) -> bool {
     if frame.eax as u8 == id as u8 {
         let arg_ptr = frame.ebx as *const A;
@@ -137,7 +160,7 @@ fn match_syscall<A: Arg, T: Arg>(
                 validate_ptr(result_ptr, true),
                 "invalid syscall result buffer"
             );
-            let result = func(frame, arg_ptr.as_ref().unwrap());
+            let result = func(frame, arg_ptr.read());
             result_ptr.write(result);
         }
         true

@@ -34,6 +34,7 @@ global_asm!(include_str!("kentry.asm"));
 
 // Include Rust modules
 pub mod debug;
+pub mod fd;
 pub mod heap;
 pub mod prelude;
 pub mod scheduler;
@@ -115,7 +116,10 @@ pub extern "C" fn main() -> ! {
                               .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
                       };
     let mut scheduler: Option<scheduler::Scheduler> = None;
+    let console = alloc::rc::Rc::new(core::cell::RefCell::new(fd::Console));
     while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
+        kprintln!("Found ELF: {:#08x?}", header);
+
         // We've got an ELF header. Make an MMU environment for it
         let cr3 = {
             let mut mmu = mmu::MMU.take().unwrap();
@@ -130,7 +134,6 @@ pub extern "C" fn main() -> ! {
             }
         };
 
-        kprintln!("Found ELF: {:#08x?}", header);
         // Load the ELF into memory
         header.load().expect("I/O error");
         offset = header.start_offset as usize + header.max_offset as usize;
@@ -174,12 +177,18 @@ pub extern "C" fn main() -> ! {
             },
         };
 
-        match scheduler.as_mut() {
-            None => scheduler = Some(scheduler::Scheduler::new(env)),
-            Some(scheduler) => {
-                scheduler.add_process(env);
+        let pid = match scheduler.as_mut() {
+            None => {
+                scheduler = Some(scheduler::Scheduler::new(env));
+                scheduler.as_mut().unwrap().current_pid()
             }
+            Some(scheduler) => scheduler.add_process(env),
         };
+
+        // set up stdio descriptors
+        scheduler.as_mut().unwrap().set_fd(pid, 0, console.clone());
+        scheduler.as_mut().unwrap().set_fd(pid, 1, console.clone());
+        scheduler.as_mut().unwrap().set_fd(pid, 2, console.clone());
     }
 
     kprintln!("entering userland!");

@@ -16,6 +16,10 @@ pub fn yield_cpu() {
     syscall(SyscallId::YieldCpu, &())
 }
 
-pub fn puts(s: &str) {
-    syscall(SyscallId::Puts, &s)
+pub fn read(fd: Fd, buf: &mut [u8]) -> Result<usize, ReadError> {
+    syscall(SyscallId::Read, &ReadArg { fd, buf })
+}
+
+pub fn write(fd: Fd, buf: &[u8]) -> Result<usize, WriteError> {
+    syscall(SyscallId::Write, &WriteArg { fd, buf })
 }
