@@ -152,10 +152,9 @@ impl<const BASE: u16> Pio<BASE> {
                 // read a sector from the drive
                 self.wait()?;
 
-                self.data.read_slice(core::slice::from_raw_parts_mut(
-                    buf.as_mut_ptr() as *mut u16,
-                    SECTOR_SIZE / 2,
-                ));
+                let word_buf =
+                    core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u16, SECTOR_SIZE / 2);
+                word_buf.iter_mut().for_each(|w| *w = self.data.read());
 
                 // advance the buffer pointer to the next sector
                 buf = &mut buf[SECTOR_SIZE..];
