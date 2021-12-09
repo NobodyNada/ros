@@ -139,12 +139,13 @@ pub extern "C" fn page_fault(frame: &mut interrupt::InterruptFrame) {
             // Kill the offending process
             let mut scheduler = crate::scheduler::SCHEDULER.take().unwrap();
             let scheduler = scheduler.as_mut().unwrap();
-
             kprintln!(
-                "terminating process {} due to unhandled pagefault",
-                scheduler.current_pid()
+                "terminating process {} due to unhandled pagefault at virtual address {:#010x}\nCode: {:#x?}\nFrame: {:#x?}",
+                scheduler.current_pid(),
+                vaddr,
+                code,
+                frame
             );
-
             scheduler.kill_current_process(frame);
         } else {
             unhandled("Unhandled pagefault");
