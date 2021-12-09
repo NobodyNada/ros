@@ -104,8 +104,12 @@ enum Command {
 
 impl<const BASE: u16> Pio<BASE> {
     fn wait(&mut self) -> Result<(), Error> {
-        loop {
-            unsafe {
+        unsafe {
+            // Wait about 400ns to allow the status register to settle
+            for _ in 0..15 {
+                self.status.read();
+            }
+            loop {
                 let status = self.status.read();
                 if status.err() || status.df() {
                     return Err(self.error.read());
