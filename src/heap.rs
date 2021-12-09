@@ -25,13 +25,13 @@ use core::{
 
 macro_rules! debug {
     ($($arg:tt)*) => {
-        //$crate::kprint!($($arg)*));
+        //$crate::kprint!($($arg)*)
     };
 }
 
 macro_rules! debugln {
     ($($arg:tt)*) => {
-        //$crate::kprintln!($($arg)*));
+        //$crate::kprintln!($($arg)*)
     };
 }
 
@@ -195,11 +195,15 @@ impl _HeapAllocator {
         let mmu = mmu.deref_mut();
         if size > MAX_ALLOC {
             let pages = mmu::page_align_up(size).unwrap() / mmu::PAGE_SIZE;
-            let paddr = mmu.mapper.get_mapping(vaddr).unwrap().physaddr() as usize;
             for page_idx in 0..pages {
-                mmu.allocator
-                    .free(paddr + page_idx * mmu::PAGE_SIZE, &mut mmu.mapper);
-                mmu.mapper.unmap(&mut mmu.allocator, vaddr + page_idx);
+                let paddr = mmu
+                    .mapper
+                    .get_mapping(vaddr + page_idx * mmu::PAGE_SIZE)
+                    .unwrap()
+                    .physaddr() as usize;
+                mmu.allocator.free(paddr, &mut mmu.mapper);
+                mmu.mapper
+                    .unmap(&mut mmu.allocator, vaddr + page_idx * mmu::PAGE_SIZE);
             }
         } else {
             let page_start = mmu::page_align_down(vaddr);
