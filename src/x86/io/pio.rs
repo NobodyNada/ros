@@ -118,7 +118,7 @@ impl<const BASE: u16> Pio<BASE> {
         }
     }
 
-    pub fn read(&mut self, buf: &mut [u8], idx: u32, count: u8) -> Result<(), Error> {
+    pub fn read(&mut self, mut buf: &mut [u8], idx: u32, count: u8) -> Result<(), Error> {
         assert_eq!(
             buf.len(),
             SECTOR_SIZE * count as usize,
@@ -144,12 +144,18 @@ impl<const BASE: u16> Pio<BASE> {
             self.lba_hi.write((idx >> 16) as u8);
             self.command.write(Command::Read as u8);
 
-            self.wait()?;
+            while !buf.is_empty() {
+                // read a sector from the drive
+                self.wait()?;
 
-            self.data.read_slice(core::slice::from_raw_parts_mut(
-                buf.as_mut_ptr() as *mut u16,
-                buf.len() / 2,
-            ));
+                self.data.read_slice(core::slice::from_raw_parts_mut(
+                    buf.as_mut_ptr() as *mut u16,
+                    SECTOR_SIZE / 2,
+                ));
+
+                // advance the buffer pointer to the next sector
+                buf = &mut buf[SECTOR_SIZE..];
+            }
         }
         Ok(())
     }
