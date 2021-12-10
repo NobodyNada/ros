@@ -45,7 +45,6 @@ impl Pic {
 
     fn write_mask(&mut self) {
         unsafe {
-            crate::kprintln!("write mask {:#x}", self.mask);
             self.master.data.write(self.mask as u8);
             self.slave.data.write((self.mask >> 8) as u8);
         }
