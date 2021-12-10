@@ -39,6 +39,10 @@ pub fn default() -> InterruptDescriptorTable {
         user: [Interrupt::undefined(); 224],
     };
 
+    idt.user[pit::Pit::IRQ] = Interrupt::hw_interrupt(isr_noerr!(
+        pit::Pit::IRQ + IRQ_OFFSET,
+        pit::Pit::handle_interrupt
+    ));
     idt.user[io::keyboard::Keyboard::IRQ] = Interrupt::hw_interrupt(isr_noerr!(
         io::keyboard::Keyboard::IRQ + IRQ_OFFSET,
         io::keyboard::Keyboard::handle_interrupt

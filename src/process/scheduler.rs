@@ -5,7 +5,11 @@ use crate::{
     x86::{self, env::Env, interrupt::InterruptFrame},
 };
 use alloc::rc::Rc;
-use core::{cell::RefCell, ops::DerefMut};
+use core::{
+    cell::RefCell,
+    ops::DerefMut,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use hashbrown::HashMap;
 
 pub type Pid = u32;
@@ -39,7 +43,11 @@ struct Block {
     continuation: fn(&mut InterruptFrame),
 }
 
+/// Set if the preemption timer fires during kernelspace.
+static TIMER_FIRED: AtomicBool = AtomicBool::new(false);
 impl Scheduler {
+    pub const PREEMPT_RATE: u32 = 100; // 100 Hz
+
     pub fn new(init_process: Env) -> Scheduler {
         let mut processes = HashMap::new();
         processes.insert(
@@ -91,6 +99,16 @@ impl Scheduler {
         core::mem::drop(global_scheduler_ref);
 
         tss.ss0 = x86::mmu::SegmentId::KernelData as u16;
+
+        // Set up the preemption timer for 100 Hz
+        x86::interrupt::pit::PIT
+            .take()
+            .unwrap()
+            .set_divisor((x86::interrupt::pit::Pit::RATE / Self::PREEMPT_RATE) as u16);
+        x86::interrupt::pic::PIC
+            .take()
+            .unwrap()
+            .unmask(x86::interrupt::pit::Pit::IRQ);
         unsafe {
             call_user(core::ptr::addr_of_mut!(tss.esp0), trap_frame);
         }
@@ -327,5 +345,31 @@ impl Scheduler {
             reason,
             continuation,
         });
+    }
+
+    /// Handles an incoming timer interrupt.
+    pub fn handle_interrupt(frame: &mut InterruptFrame) {
+        if frame.is_userspace() {
+            TIMER_FIRED.store(false, Ordering::Relaxed);
+            // // Preempt the user process.
+            let continuation = SCHEDULER
+                .take()
+                .expect("scheduler conflict in userspace?")
+                .as_mut()
+                .expect("no scheduler in userspace?")
+                .schedule(frame);
+            continuation(frame);
+        } else {
+            TIMER_FIRED.store(true, Ordering::Relaxed);
+        }
+    }
+
+    pub fn preempt_if_needed(&mut self, frame: &mut InterruptFrame) {
+        if TIMER_FIRED.load(Ordering::Relaxed) {
+            // Preempt the user process.
+            TIMER_FIRED.store(false, Ordering::Relaxed);
+            let continuation = self.schedule(frame);
+            continuation(frame);
+        }
     }
 }

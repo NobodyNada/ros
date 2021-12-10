@@ -7,6 +7,7 @@ use modular_bitfield::prelude::*;
 
 mod handlers;
 pub mod pic;
+pub mod pit;
 
 /// Disables interrupts.
 pub fn cli() {
