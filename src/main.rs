@@ -196,9 +196,12 @@ pub extern "C" fn main() -> ! {
         };
 
         // set up stdio descriptors
-        scheduler.as_mut().unwrap().set_fd(pid, 0, console.clone());
-        scheduler.as_mut().unwrap().set_fd(pid, 1, console.clone());
-        scheduler.as_mut().unwrap().set_fd(pid, 2, console.clone());
+        for fd in [0, 1, 2] {
+            scheduler
+                .as_mut()
+                .unwrap()
+                .set_fd(pid, fd, Some(console.clone()));
+        }
     }
 
     kprintln!("entering userland!");

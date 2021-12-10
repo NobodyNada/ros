@@ -7,6 +7,11 @@ pub type Fd = u32;
 pub struct File {
     pub fd: Fd,
 }
+impl File {
+    pub fn new(fd: Fd) -> File {
+        File { fd }
+    }
+}
 
 pub fn stdin() -> File {
     File { fd: 0 }
@@ -23,8 +28,34 @@ impl File {
         syscall::read(self.fd, buf)
     }
 
+    /// Attemts to read from the file until `buf` is full.
+    /// Note that the buffer still will not be filled if the end-of-file is reached.
+    pub fn read_all(&mut self, buf: &mut [u8]) -> Result<usize, syscall::ReadError> {
+        let mut i = 0;
+        while i < buf.len() {
+            match syscall::read(self.fd, &mut buf[i..])? {
+                0 => break,
+                n => i += n,
+            }
+        }
+        Ok(i)
+    }
+
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, syscall::WriteError> {
         syscall::write(self.fd, buf)
+    }
+
+    /// Writes the entire buffer to the file.
+    pub fn write_all(&mut self, buf: &[u8]) -> Result<(), syscall::WriteError> {
+        let mut i = 0;
+        while i < buf.len() {
+            i += syscall::write(self.fd, &buf[i..])?;
+        }
+        Ok(())
+    }
+
+    pub fn close(self) {
+        syscall::close(self.fd)
     }
 }
 

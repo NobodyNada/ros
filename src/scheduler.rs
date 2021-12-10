@@ -26,6 +26,7 @@ struct Process {
     prev: Option<Pid>,
     fdtable: HashMap<Fd, Rc<RefCell<dyn fd::File>>>,
     block: Option<Block>,
+    next_fd: Fd,
 }
 
 struct Block {
@@ -45,6 +46,7 @@ impl Scheduler {
                 prev: None,
                 fdtable: HashMap::new(),
                 block: None,
+                next_fd: 0,
             },
         );
 
@@ -196,6 +198,7 @@ impl Scheduler {
                 prev: None,
                 fdtable: HashMap::new(),
                 block: None,
+                next_fd: 0,
             },
         );
 
@@ -245,12 +248,23 @@ impl Scheduler {
             .and_then(|process| process.fdtable.get(&fd))
     }
 
-    pub fn set_fd(&mut self, pid: Pid, fd: Fd, file: Rc<RefCell<dyn fd::File>>) {
-        self.processes
-            .get_mut(&pid)
-            .expect("invalid process")
-            .fdtable
-            .insert(fd, file);
+    pub fn set_fd(&mut self, pid: Pid, fd: Fd, file: Option<Rc<RefCell<dyn fd::File>>>) {
+        let process = self.processes.get_mut(&pid).expect("invalid process");
+        if let Some(file) = file {
+            process.fdtable.insert(fd, file);
+        } else {
+            process.fdtable.remove(&fd);
+        }
+        process.next_fd = core::cmp::max(process.next_fd, fd + 1);
+    }
+
+    pub fn new_fd(&mut self, pid: Pid, file: Rc<RefCell<dyn fd::File>>) -> Fd {
+        let process = self.processes.get_mut(&pid).expect("invalid process");
+        let fd = process.next_fd;
+        process.next_fd += 1;
+        process.fdtable.insert(fd, file);
+        fd
+    }
 
     /// Blocks a process on the given file descriptor.
     /// The process will not be scheduled until the file descriptor is ready to access.

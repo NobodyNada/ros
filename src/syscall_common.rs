@@ -5,6 +5,7 @@ pub enum SyscallId {
     Read,
     Write,
     Close,
+    Pipe,
 }
 
 pub type Fd = u32;

@@ -23,3 +23,11 @@ pub fn read(fd: Fd, buf: &mut [u8]) -> Result<usize, ReadError> {
 pub fn write(fd: Fd, buf: &[u8]) -> Result<usize, WriteError> {
     syscall(SyscallId::Write, &WriteArg { fd, buf })
 }
+
+pub fn close(fd: Fd) {
+    syscall(SyscallId::Close, &fd)
+}
+
+pub fn pipe() -> (Fd, Fd) {
+    syscall(SyscallId::Pipe, &())
+}

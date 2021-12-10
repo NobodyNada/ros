@@ -1,6 +1,9 @@
 //! Kernel-side syscall handlers
 
+use core::cell::RefCell;
 use core::ops::Deref;
+
+use alloc::rc::Rc;
 
 use crate::syscall_common::*;
 use crate::{
@@ -13,8 +16,10 @@ pub fn syscall(frame: &mut interrupt::InterruptFrame) {
     // al == syscall number
     let matched = match_syscall(frame, SyscallId::Exit, |frame, _: ()| exit(frame))
         || match_syscall(frame, SyscallId::YieldCpu, |frame, _: ()| yield_cpu(frame))
-        || match_syscall(frame, SyscallId::Read, read)
-        || match_syscall(frame, SyscallId::Write, write);
+        || match_syscall_blocking(frame, SyscallId::Read, read)
+        || match_syscall_blocking(frame, SyscallId::Write, write)
+        || match_syscall(frame, SyscallId::Close, close)
+        || match_syscall(frame, SyscallId::Pipe, |_, _: ()| pipe());
 
     // If no syscall matched, panic
     // TODO: kill userspace process instead
@@ -77,6 +82,23 @@ fn write(
     } else {
         Ok(Err(WriteError::BadFd))
     }
+}
+
+fn close(_frame: &mut interrupt::InterruptFrame, fd: Fd) {
+    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+    let scheduler = scheduler.as_mut().unwrap();
+    scheduler.set_fd(scheduler.current_pid(), fd, None);
+}
+
+fn pipe() -> (Fd, Fd) {
+    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+    let scheduler = scheduler.as_mut().unwrap();
+    let (read, write) = fd::pipe();
+    let pid = scheduler.current_pid();
+    (
+        scheduler.new_fd(pid, Rc::new(RefCell::new(read))),
+        scheduler.new_fd(pid, Rc::new(RefCell::new(write))),
+    )
 }
 
 /// Defines a type that can be safely passed between kernelspace and userspace.
@@ -144,6 +166,18 @@ impl<T: Arg> Arg for [T] {
 impl Arg for u8 {
     unsafe fn validate(_arg: *const Self) -> bool {
         // Every u8 is valid
+        true
+    }
+}
+impl Arg for u32 {
+    unsafe fn validate(_arg: *const Self) -> bool {
+        // Every u32 is valid
+        true
+    }
+}
+impl Arg for usize {
+    unsafe fn validate(_arg: *const Self) -> bool {
+        // Every usize is valid
         true
     }
 }

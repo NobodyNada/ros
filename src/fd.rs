@@ -1,5 +1,9 @@
+use ::alloc::{collections::VecDeque, rc::Rc};
 use alloc::alloc;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+use core::{
+    cell::RefCell,
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering},
+};
 
 use crate::{
     syscall::{ReadError, WriteError},
@@ -207,4 +211,65 @@ impl File for Console {
     fn can_read(&mut self) -> bool {
         CONSOLE_BUFFER.can_read()
     }
+}
+
+// Pipes
+// A pipe has two files associated with it: a read half and a write half. Both halves share a
+// buffer using reference counting; the reference count of the buffer is therefore always 2 unless
+// one half is closed.
+
+/// The maximum buffer size for a pipe. If the buffer is full, writes will block.
+pub const PIPE_BUF_LEN: usize = 1 << 16;
+
+struct PipeRead {
+    buf: Rc<RefCell<VecDeque<u8>>>,
+}
+impl File for PipeRead {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
+        let mut src = self.buf.borrow_mut();
+        if src.is_empty() && Rc::strong_count(&self.buf) == 1 {
+            // The write half is closed and the buffer is empty, EOF.
+            src.shrink_to_fit();
+            Ok(0)
+        } else {
+            let count = core::cmp::min(buf.len(), src.len());
+            buf.iter_mut()
+                .zip(src.drain(0..count))
+                .for_each(|(a, b)| *a = b);
+            Ok(count)
+        }
+    }
+
+    fn can_read(&mut self) -> bool {
+        !self.buf.borrow().is_empty() || Rc::strong_count(&self.buf) == 1
+    }
+}
+
+struct PipeWrite {
+    buf: Rc<RefCell<VecDeque<u8>>>,
+}
+impl File for PipeWrite {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
+        let mut dst = self.buf.borrow_mut();
+        if Rc::strong_count(&self.buf) == 1 {
+            // The read half is closed, just discard everything.
+            *dst = VecDeque::new(); // clear the buffer
+            Ok(buf.len())
+        } else {
+            let count = core::cmp::min(buf.len(), PIPE_BUF_LEN - dst.len());
+            buf[0..count].iter().for_each(|&x| dst.push_back(x));
+            Ok(count)
+        }
+    }
+
+    fn can_write(&mut self) -> bool {
+        self.buf.borrow().len() != PIPE_BUF_LEN || Rc::strong_count(&self.buf) == 1
+    }
+}
+
+/// Opens a new pipe, returning a read half and a write half.
+/// Data written to the write half can be read out the read half.
+pub fn pipe() -> (impl File, impl File) {
+    let buf = Rc::new(RefCell::new(VecDeque::new()));
+    (PipeRead { buf: buf.clone() }, PipeWrite { buf })
 }
