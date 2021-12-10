@@ -5,7 +5,7 @@ use crate::{
     x86::{self, env::Env, interrupt::InterruptFrame},
 };
 use alloc::rc::Rc;
-use core::cell::RefCell;
+use core::{cell::RefCell, ops::DerefMut};
 use hashbrown::HashMap;
 
 pub type Pid = u32;
@@ -124,6 +124,34 @@ impl Scheduler {
         self.run_kernel_tasks();
         self.save_current_process(trap_frame);
         self.load_next_process(trap_frame)
+    }
+
+    /// Forks the current process, returning the child's PID.
+    /// The MMU environment and all file descriptors are copied.
+    pub fn fork(&mut self, trap_frame: &InterruptFrame) -> Pid {
+        let new_cr3 = {
+            let mut mmu = x86::mmu::MMU.take().unwrap();
+            let mmu = mmu.deref_mut();
+            mmu.mapper.fork(&mut mmu.allocator)
+        };
+
+        // Use the new MMU env for the old process, because that requires one less MMU switch.
+        let current_process = self.processes.get_mut(&self.current_pid()).unwrap();
+        let new_cr3 = core::mem::replace(&mut current_process.env.cr3, new_cr3);
+        let new_fdtable = current_process.fdtable.clone();
+        assert!(
+            current_process.block.is_none(),
+            "cannot fork a blocked process"
+        );
+
+        let new_pid = self.add_process(Env {
+            trap_frame: trap_frame.clone(),
+            cr3: new_cr3,
+        });
+        // Copy file descriptors
+        self.processes.get_mut(&new_pid).unwrap().fdtable = new_fdtable;
+
+        new_pid
     }
 
     fn run_kernel_tasks(&mut self) {

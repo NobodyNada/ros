@@ -19,7 +19,8 @@ pub fn syscall(frame: &mut interrupt::InterruptFrame) {
         || match_syscall_blocking(frame, SyscallId::Read, read)
         || match_syscall_blocking(frame, SyscallId::Write, write)
         || match_syscall(frame, SyscallId::Close, close)
-        || match_syscall(frame, SyscallId::Pipe, |_, _: ()| pipe());
+        || match_syscall(frame, SyscallId::Pipe, |_, _: ()| pipe())
+        || match_syscall(frame, SyscallId::Fork, |frame, _: ()| fork(frame));
 
     // If no syscall matched, panic
     // TODO: kill userspace process instead
@@ -99,6 +100,15 @@ fn pipe() -> (Fd, Fd) {
         scheduler.new_fd(pid, Rc::new(RefCell::new(read))),
         scheduler.new_fd(pid, Rc::new(RefCell::new(write))),
     )
+}
+
+fn fork(frame: &mut interrupt::InterruptFrame) -> Pid {
+    // Write PID 0 into the result buffer, so it'll get returned to the child
+    unsafe { *(frame.ecx as *mut Pid) = 0 };
+
+    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+    let scheduler = scheduler.as_mut().unwrap();
+    scheduler.fork(frame)
 }
 
 /// Defines a type that can be safely passed between kernelspace and userspace.

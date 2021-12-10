@@ -6,9 +6,11 @@ pub enum SyscallId {
     Write,
     Close,
     Pipe,
+    Fork,
 }
 
 pub type Fd = u32;
+pub type Pid = u32;
 
 pub struct ReadArg<'a> {
     pub fd: Fd,

@@ -31,3 +31,7 @@ pub fn close(fd: Fd) {
 pub fn pipe() -> (Fd, Fd) {
     syscall(SyscallId::Pipe, &())
 }
+
+pub fn fork() -> Pid {
+    syscall(SyscallId::Fork, &())
+}
