@@ -6,6 +6,7 @@ use crate::{util::Global, x86};
 use modular_bitfield::prelude::*;
 
 mod handlers;
+pub mod pic;
 
 /// Disables interrupts.
 pub fn cli() {
@@ -20,6 +21,8 @@ pub fn sti() {
         asm!("sti");
     }
 }
+
+pub const IRQ_OFFSET: usize = 0x20;
 
 pub static IDT: Global<InterruptDescriptorTable> = Global::lazy_default();
 

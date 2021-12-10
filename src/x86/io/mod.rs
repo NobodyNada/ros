@@ -1,6 +1,7 @@
 #![allow(dead_code, clippy::missing_safety_doc)]
 
 pub mod cga;
+pub mod keyboard;
 pub mod pio;
 pub mod serial;
 

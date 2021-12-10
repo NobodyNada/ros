@@ -108,6 +108,14 @@ pub extern "C" fn main() -> ! {
     idt.lidt();
     mmu::MMU.take().unwrap().init();
 
+    // Initialize keyboard & handle any pending interrupts
+    x86::io::keyboard::KEYBOARD.take().unwrap().handle_input();
+    unsafe {
+        fd::CONSOLE_BUFFER.init();
+    }
+
+    x86::interrupt::sti();
+
     // Find and execute all elves
     // Look past the end of the kernel binary on disk for additional elves
     let mut offset = x86::io::pio::SECTOR_SIZE + // bootloader
@@ -173,6 +181,7 @@ pub extern "C" fn main() -> ! {
                 gs: mmu::SegmentId::UserData as usize,
                 user_ss: mmu::SegmentId::UserData as usize,
                 user_esp: user_stack_top,
+                eflags: 0x200, // enable interrupts
                 ..Default::default()
             },
         };

@@ -104,6 +104,9 @@ impl Scheduler {
     }
 
     pub fn schedule(&mut self, trap_frame: &mut x86::interrupt::InterruptFrame) {
+        // Run high-priority kernel tasks first
+        fd::CONSOLE_BUFFER.handle_echo();
+
         self.save_current_process(trap_frame);
         self.load_next_process(trap_frame);
     }

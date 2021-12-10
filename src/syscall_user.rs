@@ -3,7 +3,7 @@ use crate::syscall::*;
 fn syscall<A, R>(id: SyscallId, arg: &A) -> R {
     let mut result = core::mem::MaybeUninit::<R>::uninit();
     unsafe {
-        asm!("int 0x20", in("al") id as u8, in("ebx") arg, in("ecx") &mut result);
+        asm!("int 0x40", in("al") id as u8, in("ebx") arg, in("ecx") &mut result);
         result.assume_init()
     }
 }

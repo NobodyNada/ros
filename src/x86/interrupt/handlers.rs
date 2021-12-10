@@ -1,9 +1,6 @@
-use crate::syscall;
-use crate::x86::{
-    interrupt::{HwInterruptNum, Interrupt, InterruptDescriptorTable, InterruptFrame},
-    mmu,
-};
+use crate::x86::{interrupt::*, io, mmu};
 use crate::{isr_noerr, isr_witherr};
+use crate::{kprintln, syscall};
 
 pub fn default() -> InterruptDescriptorTable {
     let mut idt = InterruptDescriptorTable {
@@ -42,13 +39,36 @@ pub fn default() -> InterruptDescriptorTable {
         user: [Interrupt::undefined(); 224],
     };
 
-    idt.user[0] = Interrupt::sw_trap(isr_noerr!(0x20, syscall::syscall));
+    idt.user[io::keyboard::Keyboard::IRQ] = Interrupt::hw_interrupt(isr_noerr!(
+        io::keyboard::Keyboard::IRQ + IRQ_OFFSET,
+        io::keyboard::Keyboard::handle_interrupt
+    ));
+    idt.user[pic::Pic::IRQ_SPURIOUS_MASTER] = Interrupt::hw_interrupt(isr_noerr!(
+        pic::Pic::IRQ_SPURIOUS_MASTER + IRQ_OFFSET,
+        pic::Pic::handle_spurious_master
+    ));
+    idt.user[pic::Pic::IRQ_SPURIOUS_SLAVE] = Interrupt::hw_interrupt(isr_noerr!(
+        pic::Pic::IRQ_SPURIOUS_SLAVE + IRQ_OFFSET,
+        pic::Pic::handle_spurious_slave
+    ));
+    idt.user[0x20] = Interrupt::sw_trap(isr_noerr!(0x20 + IRQ_OFFSET, syscall::syscall));
 
     idt
 }
 
 fn general_protection_fault(frame: &mut InterruptFrame) {
-    panic!("General protection fault {:#x?}", frame)
+    if frame.is_userspace() {
+        let mut scheduler = crate::scheduler::SCHEDULER.take().unwrap();
+        let scheduler = scheduler.as_mut().unwrap();
+        kprintln!(
+            "terminating process {} due to general protection fault: {:#x?}",
+            scheduler.current_pid(),
+            frame
+        );
+        scheduler.kill_current_process(frame);
+    } else {
+        panic!("General protection fault {:#x?}", frame)
+    }
 }
 
 fn double_fault(frame: &mut InterruptFrame) {

@@ -68,6 +68,10 @@ protected:
 
     // Load the kernel from the hard disk
     // See https://wiki.osdev.org/ATA_PIO_Mode for documentation on the hard disk registers
+    mov dx, 0x3f6
+    mov al, 0x2
+    out dx, al  // Disable hard disk interrupts
+
     mov dx, 0x1f7
 waitloop1:  // Wait for the drive to be ready
     in al, dx
