@@ -3,7 +3,7 @@
 use core::fmt::Write;
 
 use super::{Input, Io, IoRwConvertible, Output};
-use crate::util::Global;
+use crate::{util::Global, x86::interrupt};
 use modular_bitfield::prelude::*;
 
 /// A basic PC16550 serial driver.
@@ -16,6 +16,7 @@ pub static COM1: Global<Serial<COM1_BASE>> = Global::lazy(|| unsafe { Serial::ne
 
 /// The I/O device base address for the default serial port.
 pub const COM1_BASE: u16 = 0x3F8;
+pub const COM1_IRQ: usize = 4;
 
 impl<const BASE: u16> Serial<BASE> {
     /// Instantiates and initializes a serial port.
@@ -31,9 +32,7 @@ impl<const BASE: u16> Serial<BASE> {
         serial.reset();
         serial
     }
-}
 
-impl<const BASE: u16> Serial<BASE> {
     /// Reinitializes the serial port.
     pub fn reset(&mut self) {
         unsafe {
@@ -49,6 +48,20 @@ impl<const BASE: u16> Serial<BASE> {
             );
 
             self.set_baud_divisor((115200 / 9600) as u16);
+        }
+    }
+
+    pub fn enable_interrupts(&mut self) {
+        unsafe {
+            interrupt::with_interrupts_disabled(|| {
+                self.io
+                    .interrupt_enable
+                    .write(InterruptEnable::new().with_receiver_ready(true));
+                interrupt::pic::PIC.take().unwrap().unmask(COM1_IRQ);
+
+                // flush the buffer
+                Self::recv();
+            })
         }
     }
 
@@ -78,6 +91,33 @@ impl<const BASE: u16> Serial<BASE> {
         })
     }
 
+    /// Handles incoming serial data.
+    ///
+    /// # Safety
+    ///
+    /// This function can safely run at the same time as a serial transmission, however it is not
+    /// safe to perform two recieves in parallel. The caller must ensure the reciever is unique, by
+    /// calling 'recv' only with interrupts disabled.
+    pub unsafe fn recv() {
+        let mut io = SerialIo::<BASE>::default();
+        while io.line_status.read().recieve_data_ready() {
+            crate::fd::CONSOLE_BUFFER.recv_input(match io.data_holding.read() {
+                b'\r' => b'\n', // replace carriage return with newline
+                x => x,
+            });
+        }
+    }
+
+    /// Handles a serial port interrupt.
+    ///
+    /// # Safety
+    ///
+    /// This function is not thread-safe or reentrant. The caller must ensure the ISR is
+    /// called only from an interrupt context.
+    pub unsafe fn handle_interrupt(_frame: &mut interrupt::InterruptFrame) {
+        Self::recv();
+    }
+
     unsafe fn set_divisor_latch(&mut self, latch: bool) {
         self.io.line_control.write(
             LineControl::new()
@@ -88,10 +128,12 @@ impl<const BASE: u16> Serial<BASE> {
 
     fn with_divisor_latch<F: FnOnce(&mut Self) -> T, T>(&mut self, f: F) -> T {
         unsafe {
-            self.set_divisor_latch(true);
-            let result = f(self);
-            self.set_divisor_latch(false);
-            result
+            interrupt::with_interrupts_disabled(|| {
+                self.set_divisor_latch(true);
+                let result = f(self);
+                self.set_divisor_latch(false);
+                result
+            })
         }
     }
 }

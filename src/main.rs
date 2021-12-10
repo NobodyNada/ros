@@ -108,7 +108,8 @@ pub extern "C" fn main() -> ! {
     idt.lidt();
     mmu::MMU.take().unwrap().init();
 
-    // Initialize keyboard & handle any pending interrupts
+    // Initialize input & handle any pending interrupts
+    x86::io::serial::COM1.take().unwrap().enable_interrupts();
     x86::io::keyboard::KEYBOARD.take().unwrap().handle_input();
     unsafe {
         fd::CONSOLE_BUFFER.init();

@@ -22,6 +22,19 @@ pub fn sti() {
     }
 }
 
+/// Executes a closure with interrupts disabled.
+pub fn with_interrupts_disabled<F: FnOnce() -> T, T>(f: F) -> T {
+    unsafe {
+        let mut eflags: u32;
+        asm!("pushfd; pop {}", out(reg) eflags);
+        cli();
+        let result = f();
+        asm!("push {}; popfd", in(reg) eflags);
+
+        result
+    }
+}
+
 pub const IRQ_OFFSET: usize = 0x20;
 
 pub static IDT: Global<InterruptDescriptorTable> = Global::lazy_default();

@@ -43,6 +43,10 @@ pub fn default() -> InterruptDescriptorTable {
         io::keyboard::Keyboard::IRQ + IRQ_OFFSET,
         io::keyboard::Keyboard::handle_interrupt
     ));
+    idt.user[io::serial::COM1_IRQ] = Interrupt::hw_interrupt(isr_noerr!(
+        io::serial::COM1_IRQ + IRQ_OFFSET,
+        io::serial::Serial::<{ io::serial::COM1_BASE }>::handle_interrupt
+    ));
     idt.user[pic::Pic::IRQ_SPURIOUS_MASTER] = Interrupt::hw_interrupt(isr_noerr!(
         pic::Pic::IRQ_SPURIOUS_MASTER + IRQ_OFFSET,
         pic::Pic::handle_spurious_master
