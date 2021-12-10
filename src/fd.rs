@@ -92,7 +92,7 @@ impl ConsoleBuffer {
 
         let wpos = self.wpos.load(Ordering::Relaxed);
         let rpos = self.rpos.load(Ordering::Acquire);
-        if wpos == rpos - 1 {
+        if wpos == rpos.checked_sub(1).unwrap_or(CONSOLE_BUFSIZE - 1) {
             // The buffer is full, ignore the character.
             self.write_lock.store(false, Ordering::Release);
             return;
