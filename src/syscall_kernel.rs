@@ -4,7 +4,7 @@ use core::ops::Deref;
 
 use crate::syscall_common::*;
 use crate::{
-    kprintln, scheduler,
+    fd, kprintln, scheduler,
     x86::{interrupt, mmu},
 };
 
@@ -22,38 +22,60 @@ pub fn syscall(frame: &mut interrupt::InterruptFrame) {
 }
 
 fn exit(frame: &mut interrupt::InterruptFrame) {
-    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
-    let scheduler = scheduler.as_mut().unwrap();
-    kprintln!("Process {} exited.", scheduler.current_pid());
-    scheduler.kill_current_process(frame);
+    let continuation = {
+        let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+        let scheduler = scheduler.as_mut().unwrap();
+        kprintln!("Process {} exited.", scheduler.current_pid());
+        scheduler.kill_current_process(frame).1
+    };
+
+    continuation(frame);
 }
 
 fn yield_cpu(frame: &mut interrupt::InterruptFrame) {
-    let mut scheduler = scheduler::SCHEDULER.take().unwrap();
-    let scheduler = scheduler.as_mut().unwrap();
-
-    scheduler.schedule(frame);
+    let continuation = {
+        let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+        let scheduler = scheduler.as_mut().unwrap();
+        scheduler.schedule(frame)
+    };
+    continuation(frame);
 }
 
-fn read(_frame: &mut interrupt::InterruptFrame, arg: ReadArg) -> Result<usize, ReadError> {
+fn read(
+    _frame: &mut interrupt::InterruptFrame,
+    arg: ReadArg,
+) -> Blocking<Result<usize, ReadError>> {
     let mut scheduler = scheduler::SCHEDULER.take().unwrap();
     let scheduler = scheduler.as_mut().unwrap();
 
     if let Some(fd) = scheduler.get_fd(scheduler.current_pid(), arg.fd) {
-        fd.borrow_mut().read(arg.buf)
+        let mut fd = fd.borrow_mut();
+        if fd.can_read() {
+            Ok(fd.read(arg.buf))
+        } else {
+            block(arg.fd, fd::AccessType::Read)
+        }
     } else {
-        Err(ReadError::BadFd)
+        Ok(Err(ReadError::BadFd))
     }
 }
 
-fn write(_frame: &mut interrupt::InterruptFrame, arg: WriteArg) -> Result<usize, WriteError> {
+fn write(
+    _frame: &mut interrupt::InterruptFrame,
+    arg: WriteArg,
+) -> Blocking<Result<usize, WriteError>> {
     let mut scheduler = scheduler::SCHEDULER.take().unwrap();
     let scheduler = scheduler.as_mut().unwrap();
 
     if let Some(fd) = scheduler.get_fd(scheduler.current_pid(), arg.fd) {
-        fd.borrow_mut().write(arg.buf)
+        let mut fd = fd.borrow_mut();
+        if fd.can_write() {
+            Ok(fd.write(arg.buf))
+        } else {
+            block(arg.fd, fd::AccessType::Write)
+        }
     } else {
-        Err(WriteError::BadFd)
+        Ok(Err(WriteError::BadFd))
     }
 }
 
@@ -144,24 +166,75 @@ impl<'a> Arg for WriteArg<'a> {
     }
 }
 
+struct Block {
+    fd: Fd,
+    access_type: fd::AccessType,
+}
+type Blocking<T> = Result<T, Block>;
+fn block<T>(fd: Fd, access_type: fd::AccessType) -> Blocking<T> {
+    Err(Block { fd, access_type })
+}
+
 /// If the syscall ID passed by the user process in `frame` matches `id`, decodes and validates the
 /// arguments and invokes the syscall handler.
-fn match_syscall<A: Arg, T>(
+fn match_syscall<A: Arg, T, F: FnOnce(&mut interrupt::InterruptFrame, A) -> T>(
     frame: &mut interrupt::InterruptFrame,
     id: SyscallId,
-    func: fn(&mut interrupt::InterruptFrame, A) -> T,
+    func: F,
 ) -> bool {
+    // a nonblocking syscall is just a blocking syscall that doesn't block
+    match_syscall_blocking(frame, id, |f, a| Ok(func(f, a)))
+}
+
+/// If the syscall ID passed by the user process in `frame` matches `id`, decodes and validates the
+/// arguments and invokes the syscall handler.
+/// The syscall handler may return an error to indicate that the operation is blocked on a file
+/// descriptor. If this happens, the process will not be scheduled again until the file descriptor
+/// is ready, at which point the syscall will be re-invoked.
+fn match_syscall_blocking<
+    A: Arg,
+    T,
+    F: FnOnce(&mut interrupt::InterruptFrame, A) -> Blocking<T>,
+>(
+    frame: &mut interrupt::InterruptFrame,
+    id: SyscallId,
+    func: F,
+) -> bool {
+    // Does the syscall number match?
     if frame.eax as u8 == id as u8 {
+        // Get the buffers for storing the arguments and the results
         let arg_ptr = frame.ebx as *const A;
         let result_ptr = frame.ecx as *mut T;
         unsafe {
+            // Ensure the argument is valid, and the result points to valid memory
             assert!(A::validate(arg_ptr), "invalid syscall arg");
             assert!(
                 validate_ptr(result_ptr, true),
                 "invalid syscall result buffer"
             );
+
+            // Invoke the syscall with the argument
             let result = func(frame, arg_ptr.read());
-            result_ptr.write(result);
+            match result {
+                // Did it block?
+                Ok(r) => result_ptr.write(r), // No, store the result in memory and return.
+                Err(block) => {
+                    // Yes, schedule a new process.
+                    let continuation = {
+                        let mut scheduler = scheduler::SCHEDULER.take().unwrap();
+                        let scheduler = scheduler.as_mut().unwrap();
+                        scheduler.block(
+                            scheduler.current_pid(),
+                            block.fd,
+                            block.access_type,
+                            syscall,
+                        );
+                        scheduler.schedule(frame)
+                    };
+
+                    continuation(frame);
+                }
+            }
         }
         true
     } else {

@@ -2,7 +2,7 @@ use crate::{
     fd,
     syscall::Fd,
     util::Global,
-    x86::{self, env::Env},
+    x86::{self, env::Env, interrupt::InterruptFrame},
 };
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -25,6 +25,13 @@ struct Process {
     next: Option<Pid>,
     prev: Option<Pid>,
     fdtable: HashMap<Fd, Rc<RefCell<dyn fd::File>>>,
+    block: Option<Block>,
+}
+
+struct Block {
+    fd: Fd,
+    access_type: fd::AccessType,
+    continuation: fn(&mut InterruptFrame),
 }
 
 impl Scheduler {
@@ -37,6 +44,7 @@ impl Scheduler {
                 next: None,
                 prev: None,
                 fdtable: HashMap::new(),
+                block: None,
             },
         );
 
@@ -68,8 +76,10 @@ impl Scheduler {
             asm!("ltr {:x}", in(reg) x86::mmu::SegmentId::TaskState as u16, options(nomem, nostack))
         }
 
-        let mut trap_frame = x86::interrupt::InterruptFrame::default();
-        self.load_next_process(&mut trap_frame);
+        let mut trap_frame = InterruptFrame::default();
+
+        // We can safely ignore the continuation because we know the first process is not blocked.
+        let _ = self.load_next_process(&mut trap_frame);
 
         *global_scheduler_ref = Some(self);
         core::mem::drop(global_scheduler_ref);
@@ -79,10 +89,7 @@ impl Scheduler {
             call_user(core::ptr::addr_of_mut!(tss.esp0), trap_frame);
         }
         #[naked]
-        unsafe extern "C" fn call_user(
-            esp0: *mut u32,
-            trap_frame: x86::interrupt::InterruptFrame,
-        ) -> ! {
+        unsafe extern "C" fn call_user(esp0: *mut u32, trap_frame: InterruptFrame) -> ! {
             asm!(
                 "add esp, 4", // pop return adddress
                 "pop eax",    // save kernel stack pointer in TSS
@@ -103,35 +110,73 @@ impl Scheduler {
         }
     }
 
-    pub fn schedule(&mut self, trap_frame: &mut x86::interrupt::InterruptFrame) {
+    /// Schedules a process. Also returns a continuation function that must be invoked immediately
+    /// before returning to userspace, since the process may have been scheduled out during an
+    /// interruptible kernel function that needs to complete.
+    ///
+    /// The continuation must not be invoked while the caller is holding a reference to the
+    /// scheduler or any other kernel resources.
+    #[must_use]
+    pub fn schedule(&mut self, trap_frame: &mut InterruptFrame) -> fn(&mut InterruptFrame) {
         // Run high-priority kernel tasks first
-        fd::CONSOLE_BUFFER.handle_echo();
-
+        self.run_kernel_tasks();
         self.save_current_process(trap_frame);
-        self.load_next_process(trap_frame);
+        self.load_next_process(trap_frame)
     }
 
-    fn save_current_process(&mut self, trap_frame: &x86::interrupt::InterruptFrame) {
+    fn run_kernel_tasks(&mut self) {
+        fd::CONSOLE_BUFFER.handle_echo();
+    }
+
+    fn save_current_process(&mut self, trap_frame: &InterruptFrame) {
         let process = self.processes.get_mut(&self.current_process).unwrap();
         process.env.trap_frame.clone_from(trap_frame);
     }
 
-    fn load_next_process(&mut self, trap_frame: &mut x86::interrupt::InterruptFrame) {
-        if let Some(pid) = self.next {
-            self.current_process = pid;
-            let process = &self.processes[&pid];
-            unsafe {
-                x86::mmu::MMU
-                    .take()
-                    .unwrap()
-                    .mapper
-                    .set_cr3(process.env.cr3);
-            }
-            trap_frame.clone_from(&process.env.trap_frame);
+    #[must_use]
+    fn load_next_process(&mut self, trap_frame: &mut InterruptFrame) -> fn(&mut InterruptFrame) {
+        loop {
+            if let Some(pid) = self.next {
+                let process = self.processes.get_mut(&pid).unwrap();
+                let mut continuation: fn(&mut InterruptFrame) = |_| {};
 
-            self.next = process.next.or(self.first);
-        } else {
-            panic!("no runnable processes");
+                if let Some(block) = process.block.as_ref() {
+                    let file = &process.fdtable[&block.fd];
+                    if file.borrow_mut().can_access(block.access_type) {
+                        // The process is no longer blocked, schedule it now.
+                        continuation = block.continuation;
+                        process.block = None;
+                    } else {
+                        // This process is still blocked, try the next one.
+                        continue;
+                    }
+                }
+
+                self.current_process = pid;
+                unsafe {
+                    x86::mmu::MMU
+                        .take()
+                        .unwrap()
+                        .mapper
+                        .set_cr3(process.env.cr3);
+                }
+                trap_frame.clone_from(&process.env.trap_frame);
+
+                self.next = process.next;
+                if self.next.is_none() {
+                    // We've gone through the whole list of processes, go back to the start.
+                    self.next = self.first;
+
+                    // In case we're spinning for a long time waiting for something to do,
+                    // run kernel tasks at the beginning of each round.
+                    self.run_kernel_tasks();
+                }
+
+                // We've found a process; we're done.
+                break continuation;
+            } else {
+                panic!("all processes exited");
+            }
         }
     }
 
@@ -150,6 +195,7 @@ impl Scheduler {
                 next: self.first,
                 prev: None,
                 fdtable: HashMap::new(),
+                block: None,
             },
         );
 
@@ -180,10 +226,17 @@ impl Scheduler {
         process.env
     }
 
-    pub fn kill_current_process(&mut self, trap_frame: &mut x86::interrupt::InterruptFrame) -> Env {
+    /// Terminates the current process and schedules a new process in its place.
+    ///
+    /// Returns the MMU environment of the old process, and a continuation function that must be
+    /// invoked before returning to userspace (see the documentation for `schedule`).
+    #[must_use]
+    pub fn kill_current_process(
+        &mut self,
+        trap_frame: &mut InterruptFrame,
+    ) -> (Env, fn(&mut InterruptFrame)) {
         let env = self.remove_process(self.current_pid());
-        self.load_next_process(trap_frame);
-        env
+        (env, self.load_next_process(trap_frame))
     }
 
     pub fn get_fd(&self, pid: Pid, fd: Fd) -> Option<&Rc<RefCell<dyn fd::File>>> {
@@ -198,5 +251,22 @@ impl Scheduler {
             .expect("invalid process")
             .fdtable
             .insert(fd, file);
+
+    /// Blocks a process on the given file descriptor.
+    /// The process will not be scheduled until the file descriptor is ready to access.
+    /// The provided continuation is invoked once the process is un-blocked, before the process is
+    /// scheduled for the first time, to allow the kernel to resume an interrupted syscall.
+    pub fn block(
+        &mut self,
+        pid: Pid,
+        fd: Fd,
+        access_type: fd::AccessType,
+        continuation: fn(&mut InterruptFrame),
+    ) {
+        self.processes.get_mut(&pid).expect("invalid process").block = Some(Block {
+            fd,
+            access_type,
+            continuation,
+        });
     }
 }

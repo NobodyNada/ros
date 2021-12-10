@@ -9,27 +9,45 @@ use crate::{
 /// A file descriptor backend.
 pub trait File {
     /// Attempts to read from the file descriptor. Returns the number of bytes read, or an error.
+    /// A return value of 0 indicates end-of-file.
     /// The default implementation always returns ReadError::Unsupported.
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, ReadError> {
         let _ = buf;
         Err(ReadError::Unsupported)
     }
-    /// Returns true if we have bytes available for reading.
-    /// The default implementation always returns true
+    /// Returns true if we can read without blocking.
+    /// The default implementation always returns true, because we can return an "unsupported"
+    /// error without blocking.
     fn can_read(&mut self) -> bool {
         true
     }
 
     /// Attempts to write to the file descriptor. Returns the number of bytes written, or an error.
+    /// A return value of 0 indicates end-of-file.
     fn write(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
         let _ = buf;
         Err(WriteError::Unsupported)
     }
-    /// Returns true if we have space available for writing.
-    /// The default implementation always returns true
+    /// Returns true if we can write without blocking.
+    /// The default implementation always returns true, because we can return an "unsupported"
+    /// error without blocking.
     fn can_write(&mut self) -> bool {
         true
     }
+
+    /// Returns true if this file descriptor can be accessed in the given manner (read or write).
+    fn can_access(&mut self, ty: AccessType) -> bool {
+        match ty {
+            AccessType::Read => self.can_read(),
+            AccessType::Write => self.can_write(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum AccessType {
+    Read,
+    Write,
 }
 
 const CONSOLE_BUFSIZE: usize = 4096;
@@ -154,6 +172,7 @@ impl ConsoleBuffer {
             bufpos += 1;
         }
 
+        self.rpos.store(rpos, Ordering::Release);
         self.read_lock.store(false, Ordering::Release);
         bufpos
     }

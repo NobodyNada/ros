@@ -19,11 +19,13 @@ pub struct WriteArg<'a> {
     pub buf: &'a [u8],
 }
 
+#[derive(Debug)]
 pub enum ReadError {
     BadFd,
     Unsupported,
 }
 
+#[derive(Debug)]
 pub enum WriteError {
     BadFd,
     Unsupported,
