@@ -138,6 +138,9 @@ impl _HeapAllocator {
 
                 // Remove the entry from the freelist
                 *head = (*addr).next;
+                if !(*head).is_null() {
+                    (**head).prev = core::ptr::null_mut();
+                }
 
                 debugln!("\tpage header:");
                 debugln!("\tbefore: {:?}", header);
@@ -336,6 +339,9 @@ impl PageHeader {
         let entry = self.get_freelist_entry(idx, depth);
         if !entry.is_null() {
             let entry = &mut *entry;
+            if !entry.next.is_null() {
+                (*entry.next).prev = entry.prev;
+            }
             if !entry.prev.is_null() {
                 (*entry.prev).next = entry.next;
             } else if allocator.freelists[depth] == entry {
