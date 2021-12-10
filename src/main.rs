@@ -34,10 +34,9 @@ global_asm!(include_str!("kentry.asm"));
 
 // Include Rust modules
 pub mod debug;
-pub mod fd;
 pub mod heap;
 pub mod prelude;
-pub mod scheduler;
+pub mod process;
 pub mod util;
 pub mod x86;
 
@@ -54,8 +53,10 @@ pub mod syscall {
 use core::fmt::Write;
 use x86::io::{cga, serial};
 
-use crate::util::elfloader;
-use crate::x86::mmu;
+use crate::{
+    process::{elfloader, scheduler},
+    x86::mmu,
+};
 
 /// Halts the CPU by disabling interrupts and looping forever.
 #[allow(clippy::empty_loop)]
@@ -112,7 +113,7 @@ pub extern "C" fn main() -> ! {
     x86::io::serial::COM1.take().unwrap().enable_interrupts();
     x86::io::keyboard::KEYBOARD.take().unwrap().handle_input();
     unsafe {
-        fd::CONSOLE_BUFFER.init();
+        process::fd::CONSOLE_BUFFER.init();
     }
 
     x86::interrupt::sti();
@@ -125,7 +126,7 @@ pub extern "C" fn main() -> ! {
                               .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
                       };
     let mut scheduler: Option<scheduler::Scheduler> = None;
-    let console = alloc::rc::Rc::new(core::cell::RefCell::new(fd::Console));
+    let console = alloc::rc::Rc::new(core::cell::RefCell::new(process::fd::Console));
     while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
         kprintln!("Found ELF: {:#08x?}", header);
 

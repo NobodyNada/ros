@@ -63,7 +63,7 @@ pub fn default() -> InterruptDescriptorTable {
 fn general_protection_fault(frame: &mut InterruptFrame) {
     if frame.is_userspace() {
         let continuation = {
-            let mut scheduler = crate::scheduler::SCHEDULER.take().unwrap();
+            let mut scheduler = crate::process::scheduler::SCHEDULER.take().unwrap();
             let scheduler = scheduler.as_mut().unwrap();
             kprintln!(
                 "terminating process {} due to general protection fault: {:#x?}",

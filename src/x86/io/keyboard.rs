@@ -146,7 +146,7 @@ impl Keyboard {
 
                 match KEYMAP.get(c as usize) {
                     None | Some(0) => continue,
-                    Some(&c) => crate::fd::CONSOLE_BUFFER.recv_input(c),
+                    Some(&c) => crate::process::fd::CONSOLE_BUFFER.recv_input(c),
                 }
             }
         }

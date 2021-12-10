@@ -101,7 +101,7 @@ impl<const BASE: u16> Serial<BASE> {
     pub unsafe fn recv() {
         let mut io = SerialIo::<BASE>::default();
         while io.line_status.read().recieve_data_ready() {
-            crate::fd::CONSOLE_BUFFER.recv_input(match io.data_holding.read() {
+            crate::process::fd::CONSOLE_BUFFER.recv_input(match io.data_holding.read() {
                 b'\r' => b'\n', // replace carriage return with newline
                 x => x,
             });

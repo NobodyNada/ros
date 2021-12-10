@@ -1,5 +1,5 @@
 use crate::{
-    fd,
+    process::fd,
     syscall::Fd,
     util::Global,
     x86::{self, env::Env, interrupt::InterruptFrame},

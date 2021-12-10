@@ -7,7 +7,8 @@ use alloc::rc::Rc;
 
 use crate::syscall_common::*;
 use crate::{
-    fd, kprintln, scheduler,
+    kprintln,
+    process::{fd, scheduler},
     x86::{interrupt, mmu},
 };
 
