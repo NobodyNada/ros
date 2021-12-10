@@ -8,6 +8,7 @@ use crate::x86::{
 const PIC_MASTER: u16 = 0x20;
 const PIC_SLAVE: u16 = 0xA0;
 
+/// The x86 programmable interrupt controller.
 pub struct Pic {
     master: PicIo<PIC_MASTER>,
     slave: PicIo<PIC_SLAVE>,
@@ -19,6 +20,7 @@ impl Pic {
     pub const IRQ_SPURIOUS_MASTER: usize = 7;
     pub const IRQ_SPURIOUS_SLAVE: usize = 15;
 
+    /// Creates and initializes the PIC.
     unsafe fn new() -> Pic {
         let mut pic = Pic {
             master: Default::default(),
@@ -29,6 +31,7 @@ impl Pic {
         pic
     }
 
+    /// Reinitializes the PIC.
     pub fn reset(&mut self) {
         const IRQ_SLAVE: u8 = 2;
         self.mask = 0xffff;
@@ -50,23 +53,27 @@ impl Pic {
         }
     }
 
+    /// Sets the PIC interrupt mask.
     pub fn set_mask(&mut self, mask: u16) {
         self.mask = mask;
         self.write_mask();
     }
 
+    /// Masks (disables) the specified interrupt number.
     pub fn mask(&mut self, interrupt: usize) {
         assert!(interrupt < 16, "interrupt out of range");
         self.mask |= 1 << interrupt;
         self.write_mask();
     }
 
+    /// Unmasks (enables) the specified interrupt number.
     pub fn unmask(&mut self, interrupt: usize) {
         assert!(interrupt < 16, "interrupt out of range");
         self.mask &= !(1 << interrupt);
         self.write_mask();
     }
 
+    /// Acknowledges an interrupt to the PIC.
     pub fn eoi(interrupt: usize) {
         assert!(interrupt < 16, "interrupt out of range");
         unsafe {

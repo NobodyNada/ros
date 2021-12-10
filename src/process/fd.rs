@@ -54,19 +54,33 @@ pub enum AccessType {
     Write,
 }
 
+/// A ring buffer to store incoming console bytes.  We have to be kinda careful when accessing
+/// this, because it can be written asynchronously from an interrupt context.
 const CONSOLE_BUFSIZE: usize = 4096;
 pub struct ConsoleBuffer {
+    /// The buffer; an array of length CONSOLE_BUFSIZE,
+    /// or null if the console has not yet been initialized.
     buf: AtomicPtr<u8>,
+
+    /// The position of the reader.
     rpos: AtomicUsize,
+
+    /// The position of the local echo reader.
     epos: AtomicUsize,
+
+    /// The position of the writer.
     wpos: AtomicUsize,
 
+    /// True if the buffer is currently being read.
     read_lock: AtomicBool,
+
+    /// True if the buffer is currently being written.
     write_lock: AtomicBool,
 }
 pub static CONSOLE_BUFFER: ConsoleBuffer = ConsoleBuffer::new();
 
 impl ConsoleBuffer {
+    /// Processes local echo.
     pub fn handle_echo(&self) {
         assert!(
             !self.read_lock.swap(true, Ordering::Acquire),
@@ -101,6 +115,7 @@ impl ConsoleBuffer {
         }
     }
 
+    /// Recieves an input character. This function is meant to be called from an interrupt context.
     pub fn recv_input(&self, c: u8) {
         let input_buf = self.buf.load(Ordering::Acquire);
         if input_buf.is_null() {

@@ -2,6 +2,7 @@ use crate::x86::{interrupt::*, io, mmu};
 use crate::{isr_noerr, isr_witherr};
 use crate::{kprintln, syscall};
 
+/// Populates and returns the IDT.
 pub fn default() -> InterruptDescriptorTable {
     let mut idt = InterruptDescriptorTable {
         divide_error: Interrupt::undefined(),

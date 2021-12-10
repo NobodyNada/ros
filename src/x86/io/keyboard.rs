@@ -6,6 +6,7 @@ use crate::{
 };
 use modular_bitfield::prelude::*;
 
+/// A simple PS/2 keyboard driver.
 pub struct Keyboard {
     data: Io<u8, 0x60, 0>,
     status: Input<Status, 0x64, 0>,

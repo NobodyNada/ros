@@ -13,6 +13,7 @@ use super::IoRwConvertible;
 pub const SECTOR_SIZE: usize = 512;
 pub const PIO_BASE: u16 = 0x1f0;
 
+/// An ATA PIO hard disk driver.
 #[derive(Default)]
 pub struct Pio<const BASE: u16> {
     data: io::Io<u16, BASE, 0>,

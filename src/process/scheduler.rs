@@ -14,6 +14,7 @@ use hashbrown::HashMap;
 
 pub type Pid = u32;
 
+/// A simple round-robin scheduler.
 pub struct Scheduler {
     processes: HashMap<Pid, Process>,
     first: Option<Pid>,
@@ -22,11 +23,16 @@ pub struct Scheduler {
     next_pid: Pid,
 }
 
+/// The reason a process is blocked.
 pub enum BlockReason {
+    /// The process is waiting to access a file descriptor.
     File { fd: Fd, access_type: fd::AccessType },
+
+    /// The process is waiting for another process to exit
     Process(Pid),
 }
 
+/// The global scheduler.
 pub static SCHEDULER: Global<Option<Scheduler>> = Global::new(None);
 
 struct Process {
@@ -45,9 +51,12 @@ struct Block {
 
 /// Set if the preemption timer fires during kernelspace.
 static TIMER_FIRED: AtomicBool = AtomicBool::new(false);
+
 impl Scheduler {
+    /// The timeslice interval.
     pub const PREEMPT_RATE: u32 = 100; // 100 Hz
 
+    /// Creates a new process using an initial environment.
     pub fn new(init_process: Env) -> Scheduler {
         let mut processes = HashMap::new();
         processes.insert(
@@ -71,6 +80,7 @@ impl Scheduler {
         }
     }
 
+    /// Starts the scheduler.
     pub fn run(mut self) -> ! {
         let mut global_scheduler_ref = SCHEDULER.take().expect("a scheduler is already running");
         assert!(
@@ -248,10 +258,12 @@ impl Scheduler {
         }
     }
 
+    /// Returns the process ID of the currently executing process.
     pub fn current_pid(&self) -> Pid {
         self.current_process
     }
 
+    /// Adds a new process to the scheduler.
     pub fn add_process(&mut self, env: Env) -> Pid {
         let new_pid = self.next_pid;
         self.next_pid += 1;
@@ -276,6 +288,7 @@ impl Scheduler {
         new_pid
     }
 
+    /// Removes a process from the scheduler.
     pub fn remove_process(&mut self, pid: Pid) -> Env {
         let process = self.processes.remove(&pid).unwrap();
 
@@ -295,6 +308,7 @@ impl Scheduler {
         process.env
     }
 
+    /// Returns true if the specified PID corresponds to a running process.
     pub fn process_exists(&self, pid: Pid) -> bool {
         self.processes.contains_key(&pid)
     }
@@ -312,12 +326,14 @@ impl Scheduler {
         (env, self.load_next_process(trap_frame))
     }
 
+    /// Returns a reference to the file object for a given process and file descriptor.
     pub fn get_fd(&self, pid: Pid, fd: Fd) -> Option<&Rc<RefCell<dyn fd::File>>> {
         self.processes
             .get(&pid)
             .and_then(|process| process.fdtable.get(&fd))
     }
 
+    /// Sets the file object for a given process and file descriptor.
     pub fn set_fd(&mut self, pid: Pid, fd: Fd, file: Option<Rc<RefCell<dyn fd::File>>>) {
         let process = self.processes.get_mut(&pid).expect("invalid process");
         if let Some(file) = file {
@@ -328,6 +344,7 @@ impl Scheduler {
         process.next_fd = core::cmp::max(process.next_fd, fd + 1);
     }
 
+    /// Creates a new file descriptor for the given file.
     pub fn new_fd(&mut self, pid: Pid, file: Rc<RefCell<dyn fd::File>>) -> Fd {
         let process = self.processes.get_mut(&pid).expect("invalid process");
         let fd = process.next_fd;
@@ -364,6 +381,7 @@ impl Scheduler {
         }
     }
 
+    /// If the preemption timer fired while we were in kernelspace, schedules a new processs now.
     pub fn preempt_if_needed(&mut self, frame: &mut InterruptFrame) {
         if TIMER_FIRED.load(Ordering::Relaxed) {
             // Preempt the user process.

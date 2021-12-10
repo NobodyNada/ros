@@ -1,10 +1,12 @@
 use crate::x86;
 
+/// A process environment, consisting of an interrupt frame and a page directory address..
 pub struct Env {
     pub trap_frame: x86::interrupt::InterruptFrame,
     pub cr3: usize,
 }
 
+/// An x86 task state segment.
 #[repr(C)]
 #[derive(Default, Clone)]
 pub struct TaskStateSegment {

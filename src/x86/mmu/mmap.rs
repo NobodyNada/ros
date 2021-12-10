@@ -130,6 +130,7 @@ impl MemoryMapper {
         }
     }
 
+    /// Unmaps the specified virtual address.
     pub fn unmap(&mut self, palloc: &mut PhysAllocator, vaddr: usize) {
         self.map_ensure_pagetable(palloc, vaddr);
         unsafe {

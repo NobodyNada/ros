@@ -21,6 +21,7 @@ fn find_elves() -> Vec<Elf32> {
     .collect()
 }
 
+/// An ELF header.
 #[derive(Debug)]
 pub struct Elf32 {
     pub start_offset: u32,
@@ -30,6 +31,7 @@ pub struct Elf32 {
 }
 
 impl Elf32 {
+    /// Loads the contents of an ELF file into memory.
     pub fn load(&self) -> Result<InterruptFrame, pio::Error> {
         let mut pio = pio::PIO.take().unwrap();
 

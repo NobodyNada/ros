@@ -123,6 +123,7 @@ pub extern "C" fn main() -> ! {
     // Enable interrupts
     x86::interrupt::sti();
 
+    // Find ELF files located on disk after the kernel binary
     let elves = elfloader::ELVES.get();
     kprintln!(
         "Found {} {}.",
@@ -135,6 +136,7 @@ pub extern "C" fn main() -> ! {
         .expect("no elves found")
         .load()
         .expect("failed to load elf");
+
     let mut scheduler = scheduler::Scheduler::new(x86::env::Env { cr3, trap_frame });
 
     // set up stdio descriptors

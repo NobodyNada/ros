@@ -7,6 +7,7 @@ use modular_bitfield::prelude::*;
 
 use super::mmap::MemoryMapper;
 
+/// The physical memory allocator.
 pub struct PhysAllocator {
     bump_allocator: BumpAllocator,
     max_allocated: usize,
@@ -58,6 +59,9 @@ impl MemoryRegion {
     }
 }
 
+/// Virtual addresses 0xff800000-0xffc00000 store a physical memory map; with one entry per page.
+/// Each entry is either an AllocatedPageInfo struct (for an allocated page) or a pointer to the
+/// next entry in the freelist (for a free page).
 #[derive(Clone, Copy)]
 pub union PhysPageInfo {
     pub allocated: AllocatedPageInfo,

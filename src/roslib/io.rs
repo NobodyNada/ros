@@ -3,6 +3,7 @@ use core::fmt::{self, Write};
 
 pub type Fd = u32;
 
+/// A wrapper around a raw file descriptor.
 #[derive(Clone)]
 pub struct File {
     pub fd: Fd,
@@ -13,17 +14,22 @@ impl File {
     }
 }
 
+/// Returns a file referencing the standard input stream.
 pub fn stdin() -> File {
     File { fd: 0 }
 }
+/// Returns a file referencing the standard output stream.
 pub fn stdout() -> File {
     File { fd: 1 }
 }
+/// Returns a file referencing the standard error stream.
 pub fn stderr() -> File {
     File { fd: 2 }
 }
 
 impl File {
+    /// Reads up to 'buf.len()' bytes from the file, returning the number of bytes read.
+    /// Blocks if no data is available. Returns 0 if the end-of-file is reached.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, syscall::ReadError> {
         syscall::read(self.fd, buf)
     }
@@ -41,6 +47,8 @@ impl File {
         Ok(i)
     }
 
+    /// Writes up to 'buf.len()' bytes to the file, returning the number of bytes written.
+    /// Blocks if no space is available.
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, syscall::WriteError> {
         syscall::write(self.fd, buf)
     }
@@ -54,6 +62,7 @@ impl File {
         Ok(())
     }
 
+    /// Closes the file.
     pub fn close(self) {
         syscall::close(self.fd)
     }
