@@ -18,6 +18,11 @@ pub struct Scheduler {
     next_pid: Pid,
 }
 
+pub enum BlockReason {
+    File { fd: Fd, access_type: fd::AccessType },
+    Process(Pid),
+}
+
 pub static SCHEDULER: Global<Option<Scheduler>> = Global::new(None);
 
 struct Process {
@@ -30,8 +35,7 @@ struct Process {
 }
 
 struct Block {
-    fd: Fd,
-    access_type: fd::AccessType,
+    reason: BlockReason,
     continuation: fn(&mut InterruptFrame),
 }
 
@@ -167,30 +171,21 @@ impl Scheduler {
     fn load_next_process(&mut self, trap_frame: &mut InterruptFrame) -> fn(&mut InterruptFrame) {
         loop {
             if let Some(pid) = self.next {
-                let process = self.processes.get_mut(&pid).unwrap();
+                let process = self.processes.get(&pid).unwrap();
                 let mut continuation: fn(&mut InterruptFrame) = |_| {};
 
-                if let Some(block) = process.block.as_ref() {
-                    let file = &process.fdtable[&block.fd];
-                    if file.borrow_mut().can_access(block.access_type) {
-                        // The process is no longer blocked, schedule it now.
+                // Is this process blocked?
+                let blocked = if let Some(block) = process.block.as_ref() {
+                    if self.can_unblock(process, &block.reason) {
+                        // The process is no longer blocked.
                         continuation = block.continuation;
-                        process.block = None;
+                        false
                     } else {
-                        // This process is still blocked, try the next one.
-                        continue;
+                        true
                     }
-                }
-
-                self.current_process = pid;
-                unsafe {
-                    x86::mmu::MMU
-                        .take()
-                        .unwrap()
-                        .mapper
-                        .set_cr3(process.env.cr3);
-                }
-                trap_frame.clone_from(&process.env.trap_frame);
+                } else {
+                    false
+                };
 
                 self.next = process.next;
                 if self.next.is_none() {
@@ -202,11 +197,36 @@ impl Scheduler {
                     self.run_kernel_tasks();
                 }
 
-                // We've found a process; we're done.
-                break continuation;
+                if !blocked {
+                    // This process is not blcoed; schedule it now.
+                    let process = self.processes.get_mut(&pid).unwrap();
+                    process.block = None;
+
+                    self.current_process = pid;
+                    unsafe {
+                        x86::mmu::MMU
+                            .take()
+                            .unwrap()
+                            .mapper
+                            .set_cr3(process.env.cr3);
+                    }
+                    trap_frame.clone_from(&process.env.trap_frame);
+
+                    // We've found a process; we're done.
+                    break continuation;
+                }
             } else {
                 panic!("all processes exited");
             }
+        }
+    }
+
+    fn can_unblock(&self, process: &Process, reason: &BlockReason) -> bool {
+        match reason {
+            BlockReason::File { fd, access_type } => {
+                process.fdtable[fd].borrow_mut().can_access(*access_type)
+            }
+            BlockReason::Process(pid) => !self.processes.contains_key(pid),
         }
     }
 
@@ -257,6 +277,10 @@ impl Scheduler {
         process.env
     }
 
+    pub fn process_exists(&self, pid: Pid) -> bool {
+        self.processes.contains_key(&pid)
+    }
+
     /// Terminates the current process and schedules a new process in its place.
     ///
     /// Returns the MMU environment of the old process, and a continuation function that must be
@@ -298,16 +322,9 @@ impl Scheduler {
     /// The process will not be scheduled until the file descriptor is ready to access.
     /// The provided continuation is invoked once the process is un-blocked, before the process is
     /// scheduled for the first time, to allow the kernel to resume an interrupted syscall.
-    pub fn block(
-        &mut self,
-        pid: Pid,
-        fd: Fd,
-        access_type: fd::AccessType,
-        continuation: fn(&mut InterruptFrame),
-    ) {
+    pub fn block(&mut self, pid: Pid, reason: BlockReason, continuation: fn(&mut InterruptFrame)) {
         self.processes.get_mut(&pid).expect("invalid process").block = Some(Block {
-            fd,
-            access_type,
+            reason,
             continuation,
         });
     }

@@ -97,6 +97,7 @@ macro_rules! print {
 }
 #[macro_export]
 macro_rules! println {
+    () => ($crate::print!("\n"));
     ($($arg:tt)*) => (
         $crate::fprintln!(&mut $crate::io::stdout(), $($arg)*)
             .expect("I/O error")
@@ -112,7 +113,8 @@ macro_rules! eprint {
 }
 #[macro_export]
 macro_rules! eprintln {
-    ($file:expr, $($arg:tt)*) => (
+    () => ($crate::eprint!("\n"));
+    ($($arg:tt)*) => (
         $crate::fprintln!(&mut $crate::io::stderr(), $($arg)*)
             .expect("I/O error")
     )

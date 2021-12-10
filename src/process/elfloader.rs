@@ -1,5 +1,25 @@
-use crate::x86::{io::pio, mmu};
+use crate::{
+    util::Lazy,
+    x86::{interrupt::InterruptFrame, io::pio, mmu},
+};
 use alloc::vec::Vec;
+
+pub static ELVES: Lazy<Vec<Elf32>> = Lazy::new(find_elves);
+
+fn find_elves() -> Vec<Elf32> {
+    // Look past the end of the kernel binary on disk for additional elves
+    let mut offset = pio::SECTOR_SIZE + // bootloader
+                      unsafe { //kernel
+                          core::ptr::addr_of!(mmu::KERNEL_VIRT_END)
+                              .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
+                      };
+    core::iter::from_fn(|| {
+        let elf = read_elf_headers(offset as u32).expect("I/O error")?;
+        offset = elf.start_offset as usize + elf.max_offset;
+        Some(elf)
+    })
+    .collect()
+}
 
 #[derive(Debug)]
 pub struct Elf32 {
@@ -10,13 +30,16 @@ pub struct Elf32 {
 }
 
 impl Elf32 {
-    pub fn load(&self) -> Result<(), pio::Error> {
+    pub fn load(&self) -> Result<InterruptFrame, pio::Error> {
         let mut pio = pio::PIO.take().unwrap();
 
         // First, map all the memory
         {
             let mut mmu = mmu::MMU.take().unwrap();
             let mmu = &mut *mmu;
+
+            // Unmap userspace first
+
             for segment in &self.program_headers {
                 assert!(
                     segment.vaddr >= (0x1 << 22),
@@ -63,7 +86,42 @@ impl Elf32 {
             }
         }
 
-        Ok(())
+        // Allocate a 32-KiB user stack
+        let user_stack_top = {
+            let mut mmu = mmu::MMU.take().unwrap();
+            let mmu = &mut *mmu;
+
+            let user_stack_bytes = 0x8000;
+            let user_stack_pages = user_stack_bytes >> mmu::PAGE_SHIFT;
+            let user_stack = mmu
+                .mapper
+                .find_unused_userspace(user_stack_pages)
+                .expect("not enough address space for user stack");
+            mmu.mapper.map_zeroed(
+                &mut mmu.allocator,
+                user_stack,
+                user_stack_pages,
+                mmu::mmap::MappingFlags::new()
+                    .with_writable(true)
+                    .with_user_accessible(true),
+            );
+
+            user_stack + user_stack_bytes
+        };
+
+        // Create an initial trap frame
+        Ok(InterruptFrame {
+            eip: self.entrypoint,
+            cs: mmu::SegmentId::UserCode as usize,
+            ds: mmu::SegmentId::UserData as usize,
+            es: mmu::SegmentId::UserData as usize,
+            fs: mmu::SegmentId::UserData as usize,
+            gs: mmu::SegmentId::UserData as usize,
+            user_ss: mmu::SegmentId::UserData as usize,
+            user_esp: user_stack_top,
+            eflags: 0x200, // enable interrupts
+            ..Default::default()
+        })
     }
 }
 

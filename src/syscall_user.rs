@@ -35,3 +35,20 @@ pub fn pipe() -> (Fd, Fd) {
 pub fn fork() -> Pid {
     syscall(SyscallId::Fork, &())
 }
+
+#[must_use]
+pub fn exec(process: u32) -> ExecError {
+    syscall(SyscallId::Exec, &process)
+}
+
+pub fn wait(process: Pid) {
+    syscall(SyscallId::Wait, &process)
+}
+
+pub fn dup2(src: Fd, dst: Fd) {
+    syscall(SyscallId::Dup2, &(src, dst))
+}
+
+pub fn null_fd() -> Fd {
+    syscall(SyscallId::NullFd, &())
+}

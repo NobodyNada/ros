@@ -23,6 +23,9 @@ fn main() {
             println!("hello from parent of child {}!", child);
             read.close();
             write.write_all(b"Hello, child!").expect("write error");
+            write.close();
+            println!("parent waiting for child");
+            syscall::wait(child);
             println!("parent exiting");
         }
     }

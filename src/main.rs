@@ -107,7 +107,11 @@ pub extern "C" fn main() -> ! {
     // Initialize interrupts and MMU
     let idt = x86::interrupt::IDT.take_and_leak().unwrap();
     idt.lidt();
-    mmu::MMU.take().unwrap().init();
+    let cr3 = {
+        let mut mmu = mmu::MMU.take().unwrap();
+        mmu.init();
+        mmu.mapper.cr3()
+    };
 
     // Initialize input & handle any pending interrupts
     x86::io::serial::COM1.take().unwrap().enable_interrupts();
@@ -116,95 +120,29 @@ pub extern "C" fn main() -> ! {
         process::fd::CONSOLE_BUFFER.init();
     }
 
+    // Enable interrupts
     x86::interrupt::sti();
 
-    // Find and execute all elves
-    // Look past the end of the kernel binary on disk for additional elves
-    let mut offset = x86::io::pio::SECTOR_SIZE + // bootloader
-                      unsafe { //kernel
-                          core::ptr::addr_of!(mmu::KERNEL_VIRT_END)
-                              .offset_from(core::ptr::addr_of!(mmu::KERNEL_VIRT_START)) as usize
-                      };
-    let mut scheduler: Option<scheduler::Scheduler> = None;
+    let elves = elfloader::ELVES.get();
+    kprintln!(
+        "Found {} {}.",
+        elves.len(),
+        if elves.len() == 1 { "elf" } else { "elves" }
+    );
+    // Execute the first elf
+    let trap_frame = elves
+        .first()
+        .expect("no elves found")
+        .load()
+        .expect("failed to load elf");
+    let mut scheduler = scheduler::Scheduler::new(x86::env::Env { cr3, trap_frame });
+
+    // set up stdio descriptors
     let console = alloc::rc::Rc::new(core::cell::RefCell::new(process::fd::Console));
-    while let Some(header) = elfloader::read_elf_headers(offset as u32).expect("I/O error") {
-        kprintln!("Found ELF: {:#08x?}", header);
-
-        // We've got an ELF header. Make an MMU environment for it
-        let cr3 = {
-            let mut mmu = mmu::MMU.take().unwrap();
-            let mmu = &mut *mmu;
-
-            match scheduler {
-                None => {
-                    // This is the first process, use the current MMU environment.
-                    mmu.mapper.cr3()
-                }
-                Some(_) => mmu.mapper.fork(&mut mmu.allocator),
-            }
-        };
-
-        // Load the ELF into memory
-        header.load().expect("I/O error");
-        offset = header.start_offset as usize + header.max_offset as usize;
-
-        // allocate a 32-KiB user stack
-        let user_stack_top = {
-            let mut mmu = mmu::MMU.take().unwrap();
-            let mmu = &mut *mmu;
-
-            let user_stack_bytes = 0x8000;
-            let user_stack_pages = user_stack_bytes >> mmu::PAGE_SHIFT;
-            let user_stack = mmu
-                .mapper
-                .find_unused_userspace(user_stack_pages)
-                .expect("not enough address space for user stack");
-            mmu.mapper.map_zeroed(
-                &mut mmu.allocator,
-                user_stack,
-                user_stack_pages,
-                mmu::mmap::MappingFlags::new()
-                    .with_writable(true)
-                    .with_user_accessible(true),
-            );
-
-            user_stack + user_stack_bytes
-        };
-
-        // Add the process to the scheduler.
-        let env = x86::env::Env {
-            cr3,
-            trap_frame: x86::interrupt::InterruptFrame {
-                eip: header.entrypoint,
-                cs: mmu::SegmentId::UserCode as usize,
-                ds: mmu::SegmentId::UserData as usize,
-                es: mmu::SegmentId::UserData as usize,
-                fs: mmu::SegmentId::UserData as usize,
-                gs: mmu::SegmentId::UserData as usize,
-                user_ss: mmu::SegmentId::UserData as usize,
-                user_esp: user_stack_top,
-                eflags: 0x200, // enable interrupts
-                ..Default::default()
-            },
-        };
-
-        let pid = match scheduler.as_mut() {
-            None => {
-                scheduler = Some(scheduler::Scheduler::new(env));
-                scheduler.as_mut().unwrap().current_pid()
-            }
-            Some(scheduler) => scheduler.add_process(env),
-        };
-
-        // set up stdio descriptors
-        for fd in [0, 1, 2] {
-            scheduler
-                .as_mut()
-                .unwrap()
-                .set_fd(pid, fd, Some(console.clone()));
-        }
-    }
+    scheduler.set_fd(scheduler.current_pid(), 0, Some(console.clone()));
+    scheduler.set_fd(scheduler.current_pid(), 1, Some(console.clone()));
+    scheduler.set_fd(scheduler.current_pid(), 2, Some(console));
 
     kprintln!("entering userland!");
-    scheduler.expect("no processes found").run()
+    scheduler.run()
 }

@@ -7,6 +7,10 @@ pub enum SyscallId {
     Close,
     Pipe,
     Fork,
+    Exec,
+    Wait,
+    Dup2,
+    NullFd,
 }
 
 pub type Fd = u32;
@@ -32,4 +36,10 @@ pub enum ReadError {
 pub enum WriteError {
     BadFd,
     Unsupported,
+}
+
+#[derive(Debug)]
+pub enum ExecError {
+    BadProcess,
+    IoError,
 }

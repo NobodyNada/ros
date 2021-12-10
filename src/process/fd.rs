@@ -213,6 +213,17 @@ impl File for Console {
     }
 }
 
+pub struct Null;
+impl File for Null {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, WriteError> {
+        Ok(buf.len())
+    }
+
+    fn read(&mut self, _buf: &mut [u8]) -> Result<usize, ReadError> {
+        Ok(0)
+    }
+}
+
 // Pipes
 // A pipe has two files associated with it: a read half and a write half. Both halves share a
 // buffer using reference counting; the reference count of the buffer is therefore always 2 unless
