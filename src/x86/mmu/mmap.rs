@@ -339,7 +339,7 @@ impl MemoryMapper {
         }
 
         // Mark all userspace pagetables as copy-on-write as well
-        for vaddr in (PAGETABLE_BASE..self.get_pte_ptr(PAGETABLE_BASE))
+        for vaddr in (PAGETABLE_BASE..self.get_pte_ptr(mmu::KERNEL_RELOC_BASE))
             .step_by(mmu::PAGE_SIZE)
             .skip(1)
         {
