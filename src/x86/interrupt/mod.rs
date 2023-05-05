@@ -1,5 +1,6 @@
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
+use core::arch::asm;
 use core::marker::PhantomData;
 
 use crate::{util::Global, x86};

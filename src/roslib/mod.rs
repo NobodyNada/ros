@@ -15,7 +15,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 /// Rust runtime entry point, equivalent to the '_start' function on a Unix-like operating system
 #[lang = "start"]
-fn lang_start<T>(main: fn() -> T, _argc: isize, _argv: *const *const u8) -> isize {
+fn lang_start<T>(main: fn() -> T, _argc: isize, _argv: *const *const u8, _sigpipe: u8) -> isize {
     main();
     syscall::exit()
 }

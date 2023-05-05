@@ -1,4 +1,5 @@
 #![allow(dead_code, clippy::missing_safety_doc)]
+use core::arch::asm;
 
 pub mod cga;
 pub mod keyboard;

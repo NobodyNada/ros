@@ -1,4 +1,5 @@
 use crate::syscall::*;
+use core::arch::asm;
 
 /// Terminates the current process.
 pub fn exit() -> ! {

@@ -3,6 +3,8 @@ pub mod interrupt;
 pub mod io;
 pub mod mmu;
 
+use core::arch::asm;
+
 /// Returns the current code segment.
 pub fn cs() -> u16 {
     unsafe {

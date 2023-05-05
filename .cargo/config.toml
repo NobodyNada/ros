@@ -1,6 +1,6 @@
 [build]
 target = "i686-none.json"
-rustflags = ["-Cforce-frame-pointers", "-Zsymbol-mangling-version=v0"]
+rustflags = ["-Cforce-frame-pointers", "-Csymbol-mangling-version=v0"]
 
 [unstable]
 build-std = ["core", "alloc"]

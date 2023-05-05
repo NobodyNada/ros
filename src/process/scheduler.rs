@@ -6,6 +6,7 @@ use crate::{
 };
 use alloc::rc::Rc;
 use core::{
+    arch::asm,
     cell::RefCell,
     ops::DerefMut,
     sync::atomic::{AtomicBool, Ordering},

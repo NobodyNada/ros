@@ -1,4 +1,5 @@
 use crate::mmu::pagefault;
+use core::arch::asm;
 
 pub fn backtrace<F>(mut handler: F) -> Option<pagefault::PageFaultCode>
 where

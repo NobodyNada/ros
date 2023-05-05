@@ -46,6 +46,7 @@
 
 #![allow(dead_code)]
 
+use core::arch::asm;
 use core::mem::MaybeUninit;
 
 use crate::x86::mmu::{self, pagetables};

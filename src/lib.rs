@@ -3,7 +3,6 @@
 //! Defines data structures and functions ROS programs can use to communicate with the kernel.
 
 #![no_std]
-#![feature(asm)]
 #![feature(lang_items)]
 
 // export syscall_common and syscall_user as syscall

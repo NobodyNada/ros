@@ -11,18 +11,16 @@
 #![no_main]
 // Enable unstable (nightly-only) features that we need:
 //   Inline assembly
-#![feature(asm, global_asm, asm_const, asm_sym, naked_functions)]
+#![feature(asm_const, naked_functions)]
 //   Compiler support for x86 interrupt calling conventions
 #![feature(abi_x86_interrupt)]
 //   PanicInfo::message() function
 #![feature(panic_info_message)]
-//   Some compile-time-constant computation features
-//     (used for e.g. generating pagetables and I/O port definitions at compile time)
-#![feature(const_generics_defaults, const_fn_trait_bound, const_fn_fn_ptr_basics)]
 //   APIs for defining custom memory allocators
 #![feature(allocator_api, alloc_error_handler)]
 //   APIs for low-level manipulation of Rust objects, used to implement syscalls
 #![feature(layout_for_ptr, slice_ptr_get, slice_ptr_len)]
+use core::arch::global_asm;
 
 // Link against the 'alloc' crate, which defines
 // standard library data structures and collection

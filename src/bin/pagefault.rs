@@ -1,5 +1,5 @@
 #![no_std]
-#![feature(asm)]
+use core::arch::asm;
 
 #[allow(deref_nullptr)]
 fn main() {

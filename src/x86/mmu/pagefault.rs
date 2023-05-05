@@ -1,4 +1,5 @@
 #![allow(clippy::identity_op, dead_code)]
+use core::arch::asm;
 use core::ops::DerefMut;
 
 use crate::{
